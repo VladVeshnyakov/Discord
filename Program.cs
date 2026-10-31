@@ -17,10 +17,11 @@ class Program
         System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
 
         var host = Host.CreateDefaultBuilder(args)
-            .ConfigureAppConfiguration(config =>
-            {
-                config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-            })
+            .ConfigureAppConfiguration((context, config) =>
+	    {
+    		config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+    		config.AddEnvironmentVariables(); // <-- ДОБАВЬ ЭТУ СТРОКУ
+	    })
             .ConfigureServices((context, services) =>
             {
                 services.AddSingleton(new DiscordSocketClient(new DiscordSocketConfig

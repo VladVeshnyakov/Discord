@@ -1,5 +1,3 @@
-﻿version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
@@ -24,6 +22,7 @@ services:
       - Discord__Token=${DISCORD_TOKEN}
       - Discord__GuildId=${DISCORD_GUILD_ID}
       - Discord__ClientRoleId=${DISCORD_CLIENT_ROLE_ID}
+      # ВАЖНО: Host=db (имя сервиса), а не localhost!
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=birge_db;Username=postgres;Password=${DB_PASSWORD}
       - Scuntra__AccountId=${SCUNTRA_ACCOUNT_ID}
       - Scuntra__WebhookSecret=${SCUNTRA_WEBHOOK_SECRET}
