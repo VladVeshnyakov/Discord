@@ -1,0 +1,33 @@
+﻿version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: birge_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: birge_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  bot:
+    build: .
+    container_name: birge_bot
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - Discord__Token=${DISCORD_TOKEN}
+      - Discord__GuildId=${DISCORD_GUILD_ID}
+      - Discord__ClientRoleId=${DISCORD_CLIENT_ROLE_ID}
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=birge_db;Username=postgres;Password=${DB_PASSWORD}
+      - Scuntra__AccountId=${SCUNTRA_ACCOUNT_ID}
+      - Scuntra__WebhookSecret=${SCUNTRA_WEBHOOK_SECRET}
+      - Scuntra__ApiHost=https://scuntra.com
+
+volumes:
+  postgres_data:

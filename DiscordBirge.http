@@ -1,0 +1,6 @@
+@DiscordBirge_HostAddress = http://localhost:5190
+
+GET {{DiscordBirge_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
