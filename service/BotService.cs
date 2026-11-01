@@ -42,6 +42,17 @@ public class BotService
             
             await handlers.HandleButtonAsync(component);
         };
+        _client.SelectMenuExecuted += async component =>
+        {
+            using var scope = _services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<DbService>();
+            var scuntra = scope.ServiceProvider.GetRequiredService<ScuntraService>();
+            var actions = new UserActions(db, scuntra);
+    
+            // Создаем обработчик и вызываем метод для меню
+            var handlers = new ButtonHandlers(actions);
+            await handlers.HandleSelectMenuAsync(component);
+        };
 
         _client.ModalSubmitted += async modal => 
         {

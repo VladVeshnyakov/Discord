@@ -13,6 +13,20 @@ public class ButtonHandlers
     {
         _actions = actions;
     }
+    public async Task HandleSelectMenuAsync(SocketMessageComponent component)
+    {
+        // Если это наше меню выбора услуги
+        if (component.Data.CustomId == "select_service_to_buy")
+        {
+            // Просто отвечаем, чтобы Discord не ругался
+            await component.RespondAsync("Вы выбрали услугу! Теперь нажмите «Купить».", ephemeral: true);
+        }
+        else
+        {
+            // На всякий случай отвечаем на любое другое меню
+            await component.RespondAsync("Выбор принят.", ephemeral: true);
+        }
+    }
 
     public async Task HandleButtonAsync(SocketMessageComponent component)
     {
@@ -37,6 +51,7 @@ public class ButtonHandlers
                 return;
             }
         }
+        
 
         // Стандартный свитч
         switch (component.Data.CustomId)
