@@ -13,16 +13,16 @@ namespace DiscordBirge.Actions;
 public class UserActions
 {
     private readonly DbService _db;
-    private readonly ScuntraService _scuntra;
+    private readonly BepusdtService _bepusdt;
     private const int ServicesPerPage = 5;
 
     // Хранилище: ID пользователя -> ID выбранной услуги
     private static readonly Dictionary<ulong, int> _userSelections = new();
 
-    public UserActions(DbService db, ScuntraService scuntra)
+    public UserActions(DbService db, BepusdtService bepusdt)
     {
         _db = db;
-        _scuntra = scuntra;
+        _bepusdt = bepusdt;
     }
 
     public void SaveUserSelection(ulong userId, int serviceId)
@@ -228,17 +228,20 @@ public class UserActions
             price: service.Price
         );
 
-        // 5. Создаем ссылку через Scuntra
-        string webhookUrl = "https://lion-kotlas.ru/api/webhooks/scuntra"; 
-        // Пока оставляем USDT (в ScuntraService код приводится к нижнему регистру)
-        string coin = "btc"; 
+        // 5. Создаем ссылку через BEpusdt
+        string webhookUrl = "https://lion-kotlas.ru/api/webhooks/bepusdt"; 
+        string redirectUrl = "https://lion-kotlas.ru";
         
-        var payUrl = await _scuntra.CreateInvoiceAsync(
-            coin: coin,
-            amount: service.Price * 0.00000001m, // Убедись, что тестовая цена в БД = 1 или 2, чтобы не списалось много
+        // ВАЖНО: Для теста списываем 1.00 USD. 
+        // BEpusdt сам сконвертирует это в USDT (TRC-20) по курсу.
+        decimal testAmount = 1.00m; 
+        
+        var payUrl = await _bepusdt.CreateInvoiceAsync(
             orderId: order.Id.ToString(),
+            amount: testAmount, 
             orderDesc: service.Name,
-            webhookUrl: webhookUrl
+            webhookUrl: webhookUrl,
+            redirectUrl: redirectUrl
         );
 
         if (payUrl == null)
@@ -251,7 +254,7 @@ public class UserActions
         var embed = new EmbedBuilder()
             .WithTitle("💳 Счет на оплату создан")
             .WithDescription($"**Услуга:** {service.Name}\n**Сумма:** {service.Price} ₽\n\n" +
-                             $"Оплатите по ссылке ниже. Счет действителен 1 час.\n" +
+                             $"Оплатите по ссылке ниже. Счет действителен 15 минут.\n" +
                              $"[💸 Перейти к оплате]({payUrl})")
             .WithColor(Color.Green)
             .Build();
