@@ -6,74 +6,111 @@ using Discord.WebSocket;
 using DiscordBirge.Data;
 using DiscordBirge.Models;
 using Microsoft.Extensions.Configuration;
+using System.Linq; // Для FirstOrDefault
 
 [ApiController]
-[Route("api/scuntra")]
+[Route("api/webhooks/scuntra")] // <-- ИСПРАВЛЕНО: Точный маршрут, как в Scuntra
 public class ScuntraWebhookController : ControllerBase
 {
     private readonly DbService _db;
-    private readonly DiscordSocketClient _client; // Чтобы выдать роль
+    private readonly DiscordSocketClient _client;
     private readonly string _secret;
+    private readonly ulong _guildId;
+    private readonly ulong _clientRoleId;
 
     public ScuntraWebhookController(DbService db, DiscordSocketClient client, IConfiguration config)
     {
         _db = db;
         _client = client;
         _secret = config["Scuntra:WebhookSecret"]!;
+        
+        // Берем ID из конфига, а не хардкодим
+        _guildId = ulong.Parse(config["Discord:GuildId"]!);
+        _clientRoleId = ulong.Parse(config["Discord:ClientRoleId"]!);
     }
 
-    [HttpPost("webhook")]
+    [HttpPost]
     public async Task<IActionResult> HandleWebhook()
     {
         // 1. Читаем тело запроса
         using var reader = new StreamReader(Request.Body);
         var body = await reader.ReadToEndAsync();
 
-        // 2. Проверяем подпись (HMAC-SHA256)
-        // Scuntra передает подпись в заголовке (обычно X-Scuntra-Signature или похожий)
-        // Смотри документацию Scuntra для точного названия заголовка.
-        if (!Request.Headers.TryGetValue("X-Scuntra-Signature", out var signature))
-            return Unauthorized("No signature");
+        // 2. Проверяем подпись (Scuntra-Signature)
+        if (!Request.Headers.TryGetValue("Scuntra-Signature", out var sigHeader)) // <-- ИСПРАВЛЕНО: имя заголовка
+            return Unauthorized("No signature header");
 
+        // Формат заголовка: t=<unix-ts>,n=<hex-nonce>,v1=<hex-sha256>
+        var parts = sigHeader.ToString().Split(',');
+        string timestamp = "", nonce = "", signature = "";
+
+        foreach (var part in parts)
+        {
+            if (part.StartsWith("t=")) timestamp = part.Substring(2);
+            else if (part.StartsWith("n=")) nonce = part.Substring(2);
+            else if (part.StartsWith("v1=")) signature = part.Substring(3);
+        }
+
+        if (string.IsNullOrEmpty(timestamp) || string.IsNullOrEmpty(nonce) || string.IsNullOrEmpty(signature))
+            return Unauthorized("Invalid signature format");
+
+        // 3. Проверяем HMAC: hash(secret, t.n.body)
+        string payloadToSign = $"{timestamp}.{nonce}.{body}"; // <-- ИСПРАВЛЕНО: правильная строка для хеша
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_secret));
-        var computedHash = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(body))).ToLower();
-        
-        if (computedHash != signature.ToString().ToLower())
-            return Unauthorized("Invalid signature");
+        var computedHash = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(payloadToSign))).ToLower();
 
-        // 3. Парсим JSON
+        if (computedHash != signature.ToLower())
+        {
+            Console.WriteLine($"[WEBHOOK] Signature mismatch! Expected {computedHash}, got {signature}");
+            return Unauthorized("Invalid signature");
+        }
+
+        // 4. Парсим JSON
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
         
-        // Ищем order_id и статус
-        // Поля могут называться по-разному, проверь ответ Scuntra
-        string orderIdStr = root.GetProperty("order_id").GetString();
-        string status = root.GetProperty("status").GetString(); // "completed" или "confirmed"
+        string eventType = root.GetProperty("event").GetString() ?? "";
+        string status = root.GetProperty("status").GetString() ?? "";
+        
+        // Ищем order_id (он лежит в user-data, если мы его туда передали при создании)
+        string orderIdStr = "";
+        if (root.TryGetProperty("user-data", out var userData) && userData.TryGetProperty("order_id", out var orderIdProp))
+        {
+            orderIdStr = orderIdProp.GetString() ?? "";
+        }
+        else if (root.TryGetProperty("order_id", out var rootOrderId))
+        {
+             orderIdStr = rootOrderId.GetString() ?? "";
+        }
 
-        if (status == "completed" || status == "confirmed")
+        Console.WriteLine($"[WEBHOOK] Event: {eventType}, Order: {orderIdStr}, Status: {status}");
+
+        if (eventType == "invoice.paid" && status == "paid")
         {
             var order = await _db.GetOrderByCustomIdAsync(orderIdStr);
             if (order != null && order.Status != OrderStatus.Paid)
             {
-                // 4. Обновляем статус в БД
+                // Обновляем статус в БД
                 await _db.UpdateOrderStatusAsync(order.Id, OrderStatus.Paid);
+                Console.WriteLine($"[WEBHOOK] Order {order.Id} marked as Paid.");
 
                 // 5. Выдаем роль клиенту в Discord
-                // (Нужно получить гильдию и пользователя)
-                var guild = _client.GetGuild(1564780799419748382); // Замени на свой ID сервера
-                var user = guild?.GetUser(order.ClientId);
+                var guild = _client.GetGuild(_guildId);
+		var user = guild?.GetUser(order.ClientId); // <-- Используем синхронный метод GetUser
+                
                 if (user != null)
                 {
-                    // Предположим, у тебя есть роль "Клиент" с ID
-                    var role = guild.GetRole(1565933660291735663); 
-                    if (role != null) await user.AddRoleAsync(role);
+                    var role = guild.GetRole(_clientRoleId);
+                    if (role != null) 
+                    {
+                        await user.AddRoleAsync(role);
+                        Console.WriteLine($"[WEBHOOK] Role given to {user.Username}");
+                    }
                 }
-                
-                // 6. Отправляем сообщение в ветку заказа (если нужно)
-                // Можно отправить уведомление бустеру.
             }
         }
 
-        return Ok();
+        // Scuntra строго требует вернуть текст *ok*
+        return Content("*ok*", "text/plain"); // <-- ИСПРАВЛЕНО: возвращаем *ok*
     }
 }

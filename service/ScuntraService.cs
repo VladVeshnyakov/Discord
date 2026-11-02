@@ -8,63 +8,60 @@ public class ScuntraService
 {
     private readonly HttpClient _http;
     private readonly string _accountId;
-    private readonly string _apiHost;
+    private readonly string _accessToken;
 
     public ScuntraService(HttpClient http, IConfiguration config)
     {
         _http = http;
         _accountId = config["Scuntra:AccountId"]!;
-        _apiHost = config["Scuntra:ApiHost"] ?? "https://scuntra.com";
+        _accessToken = config["Scuntra:AccessToken"]!; 
     }
 
-    /// <summary>
-    /// Создает инвойс и возвращает ссылку на оплату (URL)
-    /// </summary>
     public async Task<string?> CreateInvoiceAsync(string coin, decimal amount, string orderId, string orderDesc, string webhookUrl)
     {
-        var requestUrl = $"{_apiHost}/api/v2/accounts/{_accountId}/invoices";
+        var requestUrl = $"https://scuntra.com/api/v2/accounts/{_accountId}/invoices";
 
-        // Формируем тело запроса согласно документации
-        var payload = new
+        // Конвертация в минимальные единицы (для BTC это 8 знаков)
+        long amountInSmallestUnit = (long)(amount * 100_000_000); 
+
+        var payload = new Dictionary<string, object>
         {
-            coin = coin, // Например "USDT_TRC20" или "BTC"
-            amount = amount,
-            lifetime = 3600, // Время жизни инвойса (1 час)
-            callback_url = webhookUrl, // Куда Scuntra пришлет вебхук
-            // Некоторые поля могут быть опциональны, но лучше передать:
-            description = orderDesc,
-            order_id = orderId,
-            store_name = "Birzha Bot"
+            { "currency", coin }, // Будем передавать "btc"
+            { "amount", amountInSmallestUnit.ToString() },
+            { "callback-url", webhookUrl },
+            { "user-data", new { order_id = orderId } }
         };
 
-        // Idempotency Key (защита от дублей при повторных запросах)
-        var idempotencyKey = $"order_{orderId}_{coin}_{amount}";
-        _http.DefaultRequestHeaders.Remove("Idempotency-Key");
-        _http.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
+        var request = new HttpRequestMessage(HttpMethod.Post, requestUrl);
+        request.Headers.Add("Authorization", $"Bearer {_accessToken}"); 
+        request.Headers.Add("Idempotency-Key", $"order_{orderId}_{Guid.NewGuid():N}");
+        request.Content = JsonContent.Create(payload);
 
         try
         {
-            var response = await _http.PostAsJsonAsync(requestUrl, payload);
-            response.EnsureSuccessStatusCode();
+            var response = await _http.SendAsync(request);
+            var responseBody = await response.Content.ReadAsStringAsync();
 
-            var content = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(content);
-            
-            // Scuntra обычно возвращает объект с полем url (или hosted_url, смотри ответ в тесте)
-            // Предполагаем, что там есть поле "url" или "hosted_url"
-            // Если в документации поле называется иначе, поправь тут.
-            if (doc.RootElement.TryGetProperty("url", out var urlProp) || 
-                doc.RootElement.TryGetProperty("hosted_url", out urlProp))
+            if (!response.IsSuccessStatusCode)
             {
-                return urlProp.GetString();
+                Console.WriteLine($"[SCUNTRA ERROR] Status: {response.StatusCode}");
+                Console.WriteLine($"[SCUNTRA ERROR] Body: {responseBody}");
+                return null;
             }
-            
-            Console.WriteLine($"Scuntra Response: {content}");
-            return null;
+
+            using var doc = JsonDocument.Parse(responseBody);
+            var root = doc.RootElement;
+
+            // Ищем ссылку на оплату
+            string? payUrl = null;
+            if (root.TryGetProperty("invoice-url", out var urlProp)) payUrl = urlProp.GetString(); // Для Scuntra это поле
+            else if (root.TryGetProperty("url", out var urlProp2)) payUrl = urlProp2.GetString();
+
+            return payUrl;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Ошибка создания инвойса Scuntra: {ex.Message}");
+            Console.WriteLine($"[SCUNTRA EXCEPTION] {ex.Message}");
             return null;
         }
     }

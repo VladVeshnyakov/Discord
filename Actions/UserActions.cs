@@ -2,89 +2,36 @@ using Discord;
 using Discord.WebSocket;
 using DiscordBirge.Data;
 using DiscordBirge.Models;
+using DiscordBirge.Services;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using DiscordBirge.Services;
 
 namespace DiscordBirge.Actions;
 
 public class UserActions
 {
     private readonly DbService _db;
-    private const int ServicesPerPage = 5;
     private readonly ScuntraService _scuntra;
+    private const int ServicesPerPage = 5;
 
+    // Хранилище: ID пользователя -> ID выбранной услуги
+    private static readonly Dictionary<ulong, int> _userSelections = new();
 
     public UserActions(DbService db, ScuntraService scuntra)
     {
         _db = db;
         _scuntra = scuntra;
     }
-    public async Task HandleBuyServiceAsync(SocketMessageComponent component)
-{
-    // 1. Получаем ID услуги из выбранного значения меню
-    // В Discord.Net выбранные значения лежат в component.Data.Values
-    var selectedIdStr = component.Data.Values.FirstOrDefault();
-    if (string.IsNullOrEmpty(selectedIdStr) || !int.TryParse(selectedIdStr, out int serviceId))
+
+    public void SaveUserSelection(ulong userId, int serviceId)
     {
-        await component.RespondAsync("❌ Ошибка: не удалось определить выбранную услугу.", ephemeral: true);
-        return;
+        _userSelections[userId] = serviceId;
     }
-
-    // 2. Получаем услугу из БД
-    var service = await _db.GetServiceByIdAsync(serviceId);
-    if (service == null)
-    {
-        await component.RespondAsync("❌ Услуга не найдена.", ephemeral: true);
-        return;
-    }
-
-    // 3. Создаем заказ в БД (статус Pending)
-    var order = await _db.CreateOrderAsync(
-        clientId: component.User.Id,
-        boosterId: service.BoosterId,
-        serviceId: service.Id,
-        price: service.Price
-    );
-
-    // 4. Создаем инвойс в Scuntra
-    // ВАЖНО: URL для вебхука должен быть публично доступен. 
-    // Пока для теста можно указать заглушку, но для реальной работы нужен ngrok или сервер.
-    // Пример: https://your-ngrok-url.ngrok.io/api/scuntra/webhook
-    string webhookUrl = "https://ВАШ_ПУБЛИЧНЫЙ_URL/api/scuntra/webhook"; 
-    
-    // Выбираем монету (можно дать пользователю выбор, но для теста USDT TRC20)
-    string coin = "USDT_TRC20"; 
-    
-    var payUrl = await _scuntra.CreateInvoiceAsync(
-        coin: coin,
-        amount: service.Price,
-        orderId: order.Id.ToString(), // Передаем ID заказа, чтобы потом найти его
-        orderDesc: service.Name,
-        webhookUrl: webhookUrl
-    );
-
-    if (payUrl == null)
-    {
-        await component.RespondAsync("❌ Ошибка при создании счета на оплату. Попробуйте позже.", ephemeral: true);
-        return;
-    }
-
-    // 5. Отправляем пользователю ссылку
-    var embed = new EmbedBuilder()
-        .WithTitle("💳 Счет на оплату создан")
-        .WithDescription($"**Услуга:** {service.Name}\n**Сумма:** {service.Price} ₽\n\n" +
-                         $"Оплатите по ссылке ниже. Счет действителен 1 час.\n" +
-                         $"[💸 Перейти к оплате]({payUrl})")
-        .WithColor(Color.Green)
-        .Build();
-
-    await component.RespondAsync(embed: embed, ephemeral: true);
-}
 
     // ==========================================
-    // ГЛАВНОЕ МЕНЮ И ТИКЕТЫ
+    // МЕНЮ И НАВИГАЦИЯ
     // ==========================================
 
     public async Task CreateTicketAsync(SocketMessageComponent component)
@@ -170,12 +117,15 @@ public class UserActions
 
         await component.UpdateAsync(m => { m.Embed = embed; m.Components = builder.Build(); });
     }
-    
 
     public async Task ShowMyServicesAsync(SocketMessageComponent component)
     {
         await component.RespondAsync("📦 **Мои услуги**\nЗдесь будет список ваших услуг. (В разработке)", ephemeral: true);
     }
+
+    // ==========================================
+    // СПИСОК УСЛУГ И ПАГИНАЦИЯ
+    // ==========================================
 
     public async Task ShowAllExchangeServicesAsync(SocketMessageComponent component)
     {
@@ -246,6 +196,74 @@ public class UserActions
         await component.UpdateAsync(m => { m.Embed = embed.Build(); m.Components = builder.Build(); });
     }
 
+    // ==========================================
+    // ПОКУПКА
+    // ==========================================
+
+    public async Task HandleBuyServiceAsync(SocketMessageComponent component)
+    {
+        // 1. СРАЗУ подтверждаем клик, чтобы Discord не выдал ошибку таймаута
+        await component.DeferAsync(ephemeral: true);
+
+        // 2. Достаем сохраненный выбор
+        if (!_userSelections.TryGetValue(component.User.Id, out int serviceId))
+        {
+            await component.FollowupAsync("❌ Ошибка: Вы не выбрали услугу. Сначала выберите её в меню!", ephemeral: true);
+            return;
+        }
+
+        // 3. Ищем услугу в БД
+        var service = await _db.GetServiceByIdAsync(serviceId);
+        if (service == null)
+        {
+            await component.FollowupAsync("❌ Услуга не найдена.", ephemeral: true);
+            return;
+        }
+
+        // 4. Создаем заказ в БД
+        var order = await _db.CreateOrderAsync(
+            clientId: component.User.Id,
+            boosterId: service.BoosterId,
+            serviceId: service.Id,
+            price: service.Price
+        );
+
+        // 5. Создаем ссылку через Scuntra
+        string webhookUrl = "https://lion-kotlas.ru/api/webhooks/scuntra"; 
+        // Пока оставляем USDT (в ScuntraService код приводится к нижнему регистру)
+        string coin = "btc"; 
+        
+        var payUrl = await _scuntra.CreateInvoiceAsync(
+            coin: coin,
+            amount: service.Price * 0.00000001m, // Убедись, что тестовая цена в БД = 1 или 2, чтобы не списалось много
+            orderId: order.Id.ToString(),
+            orderDesc: service.Name,
+            webhookUrl: webhookUrl
+        );
+
+        if (payUrl == null)
+        {
+            await component.FollowupAsync("❌ Ошибка при создании счета на оплату. Попробуйте позже.", ephemeral: true);
+            return;
+        }
+
+        // 6. Отправляем ссылку пользователю
+        var embed = new EmbedBuilder()
+            .WithTitle("💳 Счет на оплату создан")
+            .WithDescription($"**Услуга:** {service.Name}\n**Сумма:** {service.Price} ₽\n\n" +
+                             $"Оплатите по ссылке ниже. Счет действителен 1 час.\n" +
+                             $"[💸 Перейти к оплате]({payUrl})")
+            .WithColor(Color.Green)
+            .Build();
+
+        // Используем FollowupAsync, так как уже сделали DeferAsync
+        await component.FollowupAsync(embed: embed, ephemeral: true);
+    }
+
+    // ==========================================
+    // МОДАЛКА ДОБАВЛЕНИЯ УСЛУГИ
+    // ==========================================
+
     public async Task OpenAddServiceModalAsync(SocketMessageComponent component)
     {
         var modal = new ModalBuilder()
@@ -258,10 +276,5 @@ public class UserActions
             .AddTextInput("Ссылка на Steam профиль", "steam_link", placeholder: "https://steamcommunity.com/id/...");
 
         await component.RespondWithModalAsync(modal.Build());
-    }
-
-    public async Task HandleBuyServicePlaceholderAsync(SocketMessageComponent component)
-    {
-        await component.RespondAsync("💳 **Функция покупки в разработке!**\nСкоро здесь появится возможность оплатить услугу.", ephemeral: true);
     }
 }

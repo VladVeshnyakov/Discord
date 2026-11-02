@@ -1,10 +1,5 @@
 using Discord;
 using Discord.WebSocket;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Configuration;
-using System;
-using System.Threading.Tasks;
 using DiscordBirge;
 using DiscordBirge.Data;
 using DiscordBirge.Services;
@@ -16,42 +11,45 @@ class Program
     {
         System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
 
-        var host = Host.CreateDefaultBuilder(args)
-            .ConfigureAppConfiguration((context, config) =>
-	    {
-    		config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-    		config.AddEnvironmentVariables(); // <-- ДОБАВЬ ЭТУ СТРОКУ
-	    })
-            .ConfigureServices((context, services) =>
-            {
-                services.AddSingleton(new DiscordSocketClient(new DiscordSocketConfig
-                {
-                    GatewayIntents = GatewayIntents.Guilds | 
-                                     GatewayIntents.GuildMessages | 
-                                     GatewayIntents.MessageContent | 
-                                     GatewayIntents.GuildMembers
-                }));
-                services.AddScoped<DbService>();
-                services.AddHttpClient<ScuntraService>();
-                services.AddDbContext<AppDbContext>(options =>
-                    options.UseNpgsql(context.Configuration.GetConnectionString("DefaultConnection")));
-                services.AddSingleton<BotService>();
-            })
-            .Build();
+        var builder = WebApplication.CreateBuilder(args);
 
-        await host.StartAsync();
-        
-        using (var scope = host.Services.CreateScope())
+        // 1. Добавляем поддержку контроллеров (для вебхука Scuntra)
+        builder.Services.AddControllers();
+
+        // 2. Настройка Discord-клиента
+        builder.Services.AddSingleton(new DiscordSocketClient(new DiscordSocketConfig
+        {
+            GatewayIntents = GatewayIntents.Guilds |
+                             GatewayIntents.GuildMessages |
+                             GatewayIntents.MessageContent |
+                             GatewayIntents.GuildMembers
+        }));
+
+        // 3. Регистрация остальных сервисов
+        builder.Services.AddScoped<DbService>();
+        builder.Services.AddHttpClient<ScuntraService>();
+        builder.Services.AddDbContext<AppDbContext>(options =>
+            options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+        builder.Services.AddSingleton<BotService>();
+
+        var app = builder.Build();
+
+        // 4. Маппим контроллеры (чтобы API работал)
+        app.MapControllers();
+
+        // 5. Миграции и сидинг БД
+        using (var scope = app.Services.CreateScope())
         {
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await dbContext.Database.MigrateAsync(); // Применит миграции
-            await DbSeeder.SeedAsync(dbContext);     // Заполнит тестовыми данными
+            await dbContext.Database.MigrateAsync();
+            await DbSeeder.SeedAsync(dbContext);
         }
 
-
-        var bot = host.Services.GetRequiredService<BotService>();
+        // 6. Запускаем Discord-бота
+        var bot = app.Services.GetRequiredService<BotService>();
         await bot.StartAsync();
-        
-        await Task.Delay(-1);
+
+        // 7. Запускаем Web API (Kestrel)
+        await app.RunAsync();
     }
 }

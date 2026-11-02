@@ -18,13 +18,16 @@ services:
     restart: always
     depends_on:
       - db
+    ports:
+      - "5000:8080" # <-- ПРОБРАСЫВАЕМ ПОРТ: 5000 на сервере -> 8080 в контейнере
     environment:
+      - ASPNETCORE_URLS=http://+:8080 # <-- Говорим .NET слушать 8080
       - Discord__Token=${DISCORD_TOKEN}
       - Discord__GuildId=${DISCORD_GUILD_ID}
       - Discord__ClientRoleId=${DISCORD_CLIENT_ROLE_ID}
-      # ВАЖНО: Host=db (имя сервиса), а не localhost!
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=birge_db;Username=postgres;Password=${DB_PASSWORD}
       - Scuntra__AccountId=${SCUNTRA_ACCOUNT_ID}
+      - Scuntra__AccessToken=${SCUNTRA_ACCESS_TOKEN}
       - Scuntra__WebhookSecret=${SCUNTRA_WEBHOOK_SECRET}
       - Scuntra__ApiHost=https://scuntra.com
 

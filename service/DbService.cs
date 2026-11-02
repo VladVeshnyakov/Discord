@@ -40,7 +40,7 @@ public class DbService
             .ToListAsync();
     }
     // В DbService.cs
-    public async Task<Order> CreateOrderAsync(ulong clientId, ulong boosterId, int serviceId, decimal price)
+        public async Task<Order> CreateOrderAsync(ulong clientId, ulong boosterId, int serviceId, decimal price)
     {
         var order = new Order
         {
@@ -48,15 +48,18 @@ public class DbService
             BoosterId = boosterId,
             ServiceId = serviceId,
             Price = price,
-            Status = OrderStatus.Pending, // Ожидает оплаты
-            CreatedAt = DateTime.UtcNow
+            Status = OrderStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+            
+            // ВАЖНО: Инициализируем пустыми строками, чтобы пройти проверку NOT NULL
+            CryptoInvoiceId = string.Empty,
+            CryptoWallet = string.Empty
         };
-    
+        
         _db.Orders.Add(order);
         await _db.SaveChangesAsync();
         return order;
     }
-
     public async Task<Order?> GetOrderByCustomIdAsync(string customId)
     {
         // Мы будем использовать Id заказа в качестве order_id для Scuntra
