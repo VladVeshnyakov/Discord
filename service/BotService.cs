@@ -7,7 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Threading.Tasks;
-using DiscordBirge.Services;
+using DiscordBirge.Services; // Убедись, что это есть для BepusdtService
 
 namespace DiscordBirge;
 
@@ -17,7 +17,6 @@ public class BotService
     private readonly IConfiguration _config;
     private readonly IServiceProvider _services;
 
-    
     public BotService(DiscordSocketClient client, IConfiguration config, IServiceProvider services)
     {
         _client = client;
@@ -27,33 +26,33 @@ public class BotService
         _client.Log += LogAsync;
         _client.Ready += ReadyAsync;
         
+        // Обработчик кнопок
         _client.ButtonExecuted += async component => 
         {
-            // Создаем scope для получения Scoped сервисов
             using var scope = _services.CreateScope();
             
-            // Достаем DbService и ScuntraService из DI-контейнера
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
-            var scuntra = scope.ServiceProvider.GetRequiredService<ScuntraService>();
-            
-            // Передаем ОБА сервиса в UserActions
-            var actions = new UserActions(db, scuntra);
+            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>(); // ИСПРАВЛЕНО
+            var actions = new UserActions(db, bepusdt);
             var handlers = new ButtonHandlers(actions);
             
             await handlers.HandleButtonAsync(component);
         };
+        
+        // Обработчик выпадающего меню
         _client.SelectMenuExecuted += async component =>
         {
             using var scope = _services.CreateScope();
+            
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
-            var scuntra = scope.ServiceProvider.GetRequiredService<ScuntraService>();
-            var actions = new UserActions(db, scuntra);
+            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>(); // ИСПРАВЛЕНО ТУТ
+            var actions = new UserActions(db, bepusdt);
     
-            // Создаем обработчик и вызываем метод для меню
             var handlers = new ButtonHandlers(actions);
             await handlers.HandleSelectMenuAsync(component);
         };
 
+        // Обработчик модальных окон
         _client.ModalSubmitted += async modal => 
         {
             using var scope = _services.CreateScope();
@@ -63,14 +62,12 @@ public class BotService
         };
     }
 
-    // ВОТ ЭТОТ МЕТОД БЫЛ ПОТЕРЯН
     public async Task StartAsync()
     {
         await _client.LoginAsync(TokenType.Bot, _config["Discord:Token"]);
         await _client.StartAsync();
     }
 
-    // И ЭТОТ ТОЖЕ
     private Task LogAsync(LogMessage log)
     {
         Console.WriteLine(log.ToString());

@@ -26,10 +26,8 @@ services:
       - Discord__GuildId=${DISCORD_GUILD_ID}
       - Discord__ClientRoleId=${DISCORD_CLIENT_ROLE_ID}
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=birge_db;Username=postgres;Password=${DB_PASSWORD}
-      - Scuntra__AccountId=${SCUNTRA_ACCOUNT_ID}
-      - Scuntra__AccessToken=${SCUNTRA_ACCESS_TOKEN}
-      - Scuntra__WebhookSecret=${SCUNTRA_WEBHOOK_SECRET}
-      - Scuntra__ApiHost=https://scuntra.com
+      - Epusdt__ApiToken=${EPUSDT_API_TOKEN}
+      - Epusdt__ApiUrl=http://94.183.190.169:8080
 
 volumes:
   postgres_data:
