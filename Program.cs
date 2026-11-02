@@ -25,6 +25,8 @@ builder.Services.AddHttpClient<BepusdtService>(); // <-- Регистрируе�
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddSingleton<BotService>();
+builder.Services.AddHttpClient<OpenDotaService>();
+builder.Services.AddHostedService<MatchTrackerService>();
 
 var app = builder.Build();
 

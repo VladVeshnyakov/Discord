@@ -22,7 +22,7 @@ public class ButtonHandlers
             if (int.TryParse(selected, out int serviceId))
             {
                 _actions.SaveUserSelection(component.User.Id, serviceId);
-                await component.RespondAsync("✅ Услуга выбрана! Теперь нажмите кнопку «Купить».", ephemeral: true);
+                await component.RespondAsync("✅ Услуга выбрана! Теперь нажмите «Купить».", ephemeral: true);
             }
         }
         else
@@ -33,6 +33,7 @@ public class ButtonHandlers
 
     public async Task HandleButtonAsync(SocketMessageComponent component)
     {
+        // === ПАГИНАЦИЯ ===
         if (component.Data.CustomId.StartsWith("page_"))
         {
             var parts = component.Data.CustomId.Split('_');
@@ -54,6 +55,29 @@ public class ButtonHandlers
             }
         }
 
+        // === СТАРТ СМЕНЫ ===
+        if (component.Data.CustomId.StartsWith("start_shift_"))
+        {
+            var parts = component.Data.CustomId.Split('_');
+            if (parts.Length == 3 && int.TryParse(parts[2], out int startOrderId))
+            {
+                await _actions.StartShiftAsync(component, startOrderId);
+                return;
+            }
+        }
+
+        // === КОНЕЦ СМЕНЫ ===
+        if (component.Data.CustomId.StartsWith("end_shift_"))
+        {
+            var parts = component.Data.CustomId.Split('_');
+            if (parts.Length == 3 && int.TryParse(parts[2], out int endOrderId))
+            {
+                await _actions.EndShiftAsync(component, endOrderId);
+                return;
+            }
+        }
+
+        // === СТАНДАРТНЫЙ СВИТЧ ===
         switch (component.Data.CustomId)
         {
             case "create_ticket": await _actions.CreateTicketAsync(component); break;
@@ -63,11 +87,14 @@ public class ButtonHandlers
             case "services_add": await _actions.OpenAddServiceModalAsync(component); break;
             case "services_all_exchange": await _actions.ShowAllExchangeServicesAsync(component); break;
             case "menu_back": await _actions.ShowMainMenuAsync(component); break;
+            
             case "filter_all": await _actions.FilterServicesAsync(component, null, 0); break;
             case "filter_boost": await _actions.FilterServicesAsync(component, ServiceType.Boost, 0); break;
             case "filter_calibration": await _actions.FilterServicesAsync(component, ServiceType.Calibration, 0); break;
             case "filter_lp": await _actions.FilterServicesAsync(component, ServiceType.LP, 0); break;
+            
             case "buy_service_btn": await _actions.HandleBuyServiceAsync(component); break;
+
             default:
                 await component.RespondAsync("Неизвестная кнопка.", ephemeral: true);
                 break;

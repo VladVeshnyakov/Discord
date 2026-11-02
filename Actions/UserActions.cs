@@ -117,10 +117,119 @@ public class UserActions
 
         await component.UpdateAsync(m => { m.Embed = embed; m.Components = builder.Build(); });
     }
-
-    public async Task ShowMyServicesAsync(SocketMessageComponent component)
+    // Вставь эти методы в класс UserActions
+// (Не забудь добавить их вызовы в ButtonHandlers по ID кнопок, например "start_shift_{orderId}")
+    // Замени метод ShowMyServicesAsync на этот:
+public async Task ShowMyServicesAsync(SocketMessageComponent component)
+{
+    var orders = await _db.GetBoosterActiveOrdersAsync(component.User.Id);
+    
+    if (orders.Count == 0)
     {
-        await component.RespondAsync("📦 **Мои услуги**\nЗдесь будет список ваших услуг. (В разработке)", ephemeral: true);
+        await component.RespondAsync("📦 У вас нет активных заказов в работе.", ephemeral: true);
+        return;
+    }
+
+    // ИСПРАВЛЕНИЕ: Убрали .Build() отсюда, чтобы embed остался EmbedBuilder
+    var embed = new EmbedBuilder()
+        .WithTitle("🛠 Ваши активные заказы")
+        .WithDescription("Управляйте сменой для каждого заказа. Все игры во время смены идут в зачёт.")
+        .WithColor(Color.Green);
+
+    var builder = new ComponentBuilder();
+    int row = 0;
+
+    // Ограничиваем вывод 4 заказами, чтобы кнопки вместе с "Назад" влезли в лимит Discord (5 строк)
+    foreach (var order in orders.Take(4)) 
+    {
+        string shiftStatus = order.IsShiftActive ? "🟢 Смена активна" : "🔴 Смена не начата";
+        string label = $"#{order.Id}: {(order.IsShiftActive ? "Закончить" : "Начать")}";
+        
+        if (order.IsShiftActive)
+        {
+            builder.WithButton(label, $"end_shift_{order.Id}", ButtonStyle.Danger, row: row);
+        }
+        else
+        {
+            builder.WithButton(label, $"start_shift_{order.Id}", ButtonStyle.Success, row: row);
+        }
+        
+        // Теперь AddField работает, так как embed это EmbedBuilder
+        embed.AddField(
+            $"Заказ #{order.Id} | {order.Service.Name}",
+            $"**Клиент:** <@{order.ClientId}>\n" +
+            $"**MMR:** {order.CurrentMmr} / {order.TargetMmr} (дельта +{order.TargetMmrDelta})\n" +
+            $"**Игры:** бустер {order.BoosterGamesPlayed}, владелец {order.OwnerGamesPlayed}\n" +
+            $"**Цена:** {order.Price} ₽ | **Статус:** {shiftStatus}",
+            inline: false
+        );
+        
+        row++;
+    }
+
+    builder.WithButton("⬅ Назад", "menu_services", ButtonStyle.Secondary, row: row);
+
+    // Здесь вызываем Build(), чтобы превратить EmbedBuilder в готовый Embed для отправки
+    await component.UpdateAsync(m => { m.Embed = embed.Build(); m.Components = builder.Build(); });
+}
+
+    // Замени / добавь методы смены:
+    public async Task StartShiftAsync(SocketMessageComponent component, int orderId)
+    {
+        var order = await _db.GetOrderByIdAsync(orderId);
+        
+        if (order == null || order.BoosterId != component.User.Id)
+        {
+            await component.RespondAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
+            return;
+        }
+
+        if (order.IsShiftActive)
+        {
+            await component.RespondAsync("⚠️ Смена уже активна.", ephemeral: true);
+            return;
+        }
+
+        order.IsShiftActive = true;
+        order.ShiftStartedAt = DateTime.UtcNow;
+        
+        // ПЕРЕСЧЕТ ЦЕЛИ: Берем текущий MMR аккаунта + фиксированная дельта (200 MMR)
+        order.TargetMmr = order.CurrentMmr + order.TargetMmrDelta;
+        
+        await _db.UpdateOrderAsync(order);
+        
+        await component.RespondAsync(
+            $"✅ **Смена начата.**\n" +
+            $"Текущий MMR: **{order.CurrentMmr}**\n" +
+            $"Цель: **{order.TargetMmr}** (нужно апнуть +{order.TargetMmrDelta})\n" +
+            $"Все игры с этого момента засчитываются вам.", 
+            ephemeral: true);
+    }
+
+    public async Task EndShiftAsync(SocketMessageComponent component, int orderId)
+    {
+        var order = await _db.GetOrderByIdAsync(orderId);
+        
+        if (order == null || order.BoosterId != component.User.Id)
+        {
+            await component.RespondAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
+            return;
+        }
+
+        if (!order.IsShiftActive)
+        {
+            await component.RespondAsync("⚠️ Смена и так не активна.", ephemeral: true);
+            return;
+        }
+
+        order.IsShiftActive = false;
+        await _db.UpdateOrderAsync(order);
+        
+        await component.RespondAsync(
+            $"🛑 **Смена завершена.**\n" +
+            $"Текущий MMR: **{order.CurrentMmr}** / Цель: **{order.TargetMmr}**\n" +
+            $"Игр бустера: {order.BoosterGamesPlayed} (из них владелец: {order.OwnerGamesPlayed})", 
+            ephemeral: true);
     }
 
     // ==========================================
