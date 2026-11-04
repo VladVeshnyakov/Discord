@@ -30,8 +30,17 @@ namespace DiscordBirge.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<decimal>("BasePricePerGame")
+                        .HasColumnType("numeric");
+
+                    b.Property<int>("BoosterGamesPlayed")
+                        .HasColumnType("integer");
+
                     b.Property<decimal>("BoosterId")
                         .HasColumnType("numeric(20,0)");
+
+                    b.Property<int>("BoosterMmrChange")
+                        .HasColumnType("integer");
 
                     b.Property<decimal>("ClientId")
                         .HasColumnType("numeric(20,0)");
@@ -47,6 +56,24 @@ namespace DiscordBirge.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("CurrentMmr")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("DotaAccountId")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsShiftActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<long?>("LastProcessedMatchId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("OwnerGamesPlayed")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("OwnerMmrChange")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -57,7 +84,22 @@ namespace DiscordBirge.Migrations
                     b.Property<int>("ServiceId")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime?>("ShiftStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("StartMmr")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TargetGames")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TargetMmr")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TargetMmrDelta")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");

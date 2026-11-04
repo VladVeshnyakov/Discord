@@ -22,9 +22,8 @@ public class MatchTrackerService : BackgroundService
             using (var scope = _services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                
-                // Берем только те заказы, которые в процессе
                 var activeOrders = await db.Orders
+                    .Include(o => o.Service)
                     .Where(o => o.Status == OrderStatus.InProgress)
                     .ToListAsync(stoppingToken);
 
@@ -50,53 +49,57 @@ public class MatchTrackerService : BackgroundService
 
         foreach (var match in newMatches)
         {
-            bool isRadiant = match.PlayerSlot < 128;
-            bool isWin = (isRadiant && match.RadiantWin) || (!isRadiant && !match.RadiantWin);
-
-            // В реальности нужно брать точное изменение MMR (например, +28/-22). Пока берем +25/-25.
-            int mmrDelta = isWin ? 25 : -25; 
-
             DateTime matchTime = DateTimeOffset.FromUnixTimeSeconds(match.StartTime).UtcDateTime;
             bool isBoosterPlayed = false;
 
             if (order.IsShiftActive && order.ShiftStartedAt.HasValue)
             {
-                // Если матч был после начала смены (с погрешностью 5 минут)
                 if (matchTime >= order.ShiftStartedAt.Value.AddMinutes(-5))
                 {
                     isBoosterPlayed = true;
                 }
             }
 
-            if (isBoosterPlayed)
-            {
-                // === ИГРАЛ БУСТЕР ===
-                order.BoosterGamesPlayed++;
-                order.CurrentMmr += mmrDelta;
-                order.BoosterMmrChange += mmrDelta;
-                Console.WriteLine($"[TRACKER] Бустер сыграл ({(isWin ? "Win" : "Lose")}). MMR: {order.CurrentMmr}");
-            }
-            else
-            {
-                // === ИГРАЛ ВЛАДЕЛЕЦ ===
-                order.OwnerGamesPlayed++;
-                order.CurrentMmr += mmrDelta;
-                order.OwnerMmrChange += mmrDelta;
-                Console.WriteLine($"[TRACKER] Владелец сыграл ({(isWin ? "Win" : "Lose")}). MMR: {order.CurrentMmr}");
-            }
+            if (isBoosterPlayed) order.BoosterGamesPlayed++;
+            else order.OwnerGamesPlayed++;
 
             order.LastProcessedMatchId = match.MatchId;
 
-            // Проверка: достигнута ли цель (только если смена активна)
-            if (order.IsShiftActive && order.CurrentMmr >= order.TargetMmr)
+            // === ЛОГИКА ДЛЯ БУСТА И КАЛИБРОВКИ (Считаем MMR) ===
+            if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
             {
-                order.Status = OrderStatus.Completed;
-                order.IsShiftActive = false; // Закрываем смену
-                Console.WriteLine($"[TRACKER] ЗАКАЗ {order.Id} ВЫПОЛНЕН!");
-                Console.WriteLine($"[TRACKER] Всего игр: {order.TotalGamesPlayed} (Бустер: {order.BoosterGamesPlayed}, Владелец: {order.OwnerGamesPlayed})");
-                Console.WriteLine($"[TRACKER] Цена за игру: {order.PricePerGame:F2} руб.");
-                Console.WriteLine($"[TRACKER] К ВЫПЛАТЕ БУСТЕРУ: {order.BoosterTotalPayout:F2} руб.");
-                break;
+                bool isRadiant = match.PlayerSlot < 128;
+                bool isWin = (isRadiant && match.RadiantWin) || (!isRadiant && !match.RadiantWin);
+                int mmrDelta = isWin ? 25 : -25; 
+
+                order.CurrentMmr += mmrDelta;
+                if (isBoosterPlayed) order.BoosterMmrChange += mmrDelta;
+                else order.OwnerMmrChange += mmrDelta;
+
+                if (order.IsShiftActive && order.CurrentMmr >= order.TargetMmr)
+                {
+                    order.Status = OrderStatus.Completed;
+                    order.IsShiftActive = false;
+                    Console.WriteLine($"[TRACKER] Заказ {order.Id} (MMR) выполнен! Выплата: {order.BoosterTotalPayout:F2}р");
+                    break;
+                }
+            }
+            // === ЛОГИКА ДЛЯ ОТМЫВА LP (Считаем Игры) ===
+            else if (order.Service.Type == ServiceType.LP)
+            {
+                if (order.TotalGamesPlayed >= order.TargetGames)
+                {
+                    order.Status = OrderStatus.Completed;
+                    order.IsShiftActive = false;
+                    Console.WriteLine($"[TRACKER] Заказ {order.Id} (LP) выполнен! Игр: {order.TotalGamesPlayed}. Выплата: {order.BoosterTotalPayout:F2}р");
+                    break;
+                }
+            }
+            // === ЛОГИКА ДЛЯ ПОРЯДОЧНОСТИ (Behavior) ===
+            else if (order.Service.Type == ServiceType.Behavior)
+            {
+                // Завершается вручную через админку
+                Console.WriteLine($"[TRACKER] Заказ {order.Id} (Порядочность). Сыграна игра. Всего: {order.TotalGamesPlayed}");
             }
         }
 

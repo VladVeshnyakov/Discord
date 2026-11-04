@@ -2,6 +2,7 @@ using Discord.WebSocket;
 using System.Threading.Tasks;
 using DiscordBirge.Actions;
 using DiscordBirge.Models;
+using System.Linq;
 
 namespace DiscordBirge.Handlers;
 
@@ -33,7 +34,6 @@ public class ButtonHandlers
 
     public async Task HandleButtonAsync(SocketMessageComponent component)
     {
-        // === ПАГИНАЦИЯ ===
         if (component.Data.CustomId.StartsWith("page_"))
         {
             var parts = component.Data.CustomId.Split('_');
@@ -55,7 +55,6 @@ public class ButtonHandlers
             }
         }
 
-        // === СТАРТ СМЕНЫ ===
         if (component.Data.CustomId.StartsWith("start_shift_"))
         {
             var parts = component.Data.CustomId.Split('_');
@@ -66,7 +65,6 @@ public class ButtonHandlers
             }
         }
 
-        // === КОНЕЦ СМЕНЫ ===
         if (component.Data.CustomId.StartsWith("end_shift_"))
         {
             var parts = component.Data.CustomId.Split('_');
@@ -77,7 +75,6 @@ public class ButtonHandlers
             }
         }
 
-        // === СТАНДАРТНЫЙ СВИТЧ ===
         switch (component.Data.CustomId)
         {
             case "create_ticket": await _actions.CreateTicketAsync(component); break;

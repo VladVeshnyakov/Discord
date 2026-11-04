@@ -16,7 +16,6 @@ public class UserActions
     private readonly BepusdtService _bepusdt;
     private const int ServicesPerPage = 5;
 
-    // Хранилище: ID пользователя -> ID выбранной услуги
     private static readonly Dictionary<ulong, int> _userSelections = new();
 
     public UserActions(DbService db, BepusdtService bepusdt)
@@ -117,120 +116,6 @@ public class UserActions
 
         await component.UpdateAsync(m => { m.Embed = embed; m.Components = builder.Build(); });
     }
-    // Вставь эти методы в класс UserActions
-// (Не забудь добавить их вызовы в ButtonHandlers по ID кнопок, например "start_shift_{orderId}")
-    // Замени метод ShowMyServicesAsync на этот:
-public async Task ShowMyServicesAsync(SocketMessageComponent component)
-{
-    var orders = await _db.GetBoosterActiveOrdersAsync(component.User.Id);
-    
-    if (orders.Count == 0)
-    {
-        await component.RespondAsync("📦 У вас нет активных заказов в работе.", ephemeral: true);
-        return;
-    }
-
-    // ИСПРАВЛЕНИЕ: Убрали .Build() отсюда, чтобы embed остался EmbedBuilder
-    var embed = new EmbedBuilder()
-        .WithTitle("🛠 Ваши активные заказы")
-        .WithDescription("Управляйте сменой для каждого заказа. Все игры во время смены идут в зачёт.")
-        .WithColor(Color.Green);
-
-    var builder = new ComponentBuilder();
-    int row = 0;
-
-    // Ограничиваем вывод 4 заказами, чтобы кнопки вместе с "Назад" влезли в лимит Discord (5 строк)
-    foreach (var order in orders.Take(4)) 
-    {
-        string shiftStatus = order.IsShiftActive ? "🟢 Смена активна" : "🔴 Смена не начата";
-        string label = $"#{order.Id}: {(order.IsShiftActive ? "Закончить" : "Начать")}";
-        
-        if (order.IsShiftActive)
-        {
-            builder.WithButton(label, $"end_shift_{order.Id}", ButtonStyle.Danger, row: row);
-        }
-        else
-        {
-            builder.WithButton(label, $"start_shift_{order.Id}", ButtonStyle.Success, row: row);
-        }
-        
-        // Теперь AddField работает, так как embed это EmbedBuilder
-        embed.AddField(
-            $"Заказ #{order.Id} | {order.Service.Name}",
-            $"**Клиент:** <@{order.ClientId}>\n" +
-            $"**MMR:** {order.CurrentMmr} / {order.TargetMmr} (дельта +{order.TargetMmrDelta})\n" +
-            $"**Игры:** бустер {order.BoosterGamesPlayed}, владелец {order.OwnerGamesPlayed}\n" +
-            $"**Цена:** {order.Price} ₽ | **Статус:** {shiftStatus}",
-            inline: false
-        );
-        
-        row++;
-    }
-
-    builder.WithButton("⬅ Назад", "menu_services", ButtonStyle.Secondary, row: row);
-
-    // Здесь вызываем Build(), чтобы превратить EmbedBuilder в готовый Embed для отправки
-    await component.UpdateAsync(m => { m.Embed = embed.Build(); m.Components = builder.Build(); });
-}
-
-    // Замени / добавь методы смены:
-    public async Task StartShiftAsync(SocketMessageComponent component, int orderId)
-    {
-        var order = await _db.GetOrderByIdAsync(orderId);
-        
-        if (order == null || order.BoosterId != component.User.Id)
-        {
-            await component.RespondAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
-            return;
-        }
-
-        if (order.IsShiftActive)
-        {
-            await component.RespondAsync("⚠️ Смена уже активна.", ephemeral: true);
-            return;
-        }
-
-        order.IsShiftActive = true;
-        order.ShiftStartedAt = DateTime.UtcNow;
-        
-        // ПЕРЕСЧЕТ ЦЕЛИ: Берем текущий MMR аккаунта + фиксированная дельта (200 MMR)
-        order.TargetMmr = order.CurrentMmr + order.TargetMmrDelta;
-        
-        await _db.UpdateOrderAsync(order);
-        
-        await component.RespondAsync(
-            $"✅ **Смена начата.**\n" +
-            $"Текущий MMR: **{order.CurrentMmr}**\n" +
-            $"Цель: **{order.TargetMmr}** (нужно апнуть +{order.TargetMmrDelta})\n" +
-            $"Все игры с этого момента засчитываются вам.", 
-            ephemeral: true);
-    }
-
-    public async Task EndShiftAsync(SocketMessageComponent component, int orderId)
-    {
-        var order = await _db.GetOrderByIdAsync(orderId);
-        
-        if (order == null || order.BoosterId != component.User.Id)
-        {
-            await component.RespondAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
-            return;
-        }
-
-        if (!order.IsShiftActive)
-        {
-            await component.RespondAsync("⚠️ Смена и так не активна.", ephemeral: true);
-            return;
-        }
-
-        order.IsShiftActive = false;
-        await _db.UpdateOrderAsync(order);
-        
-        await component.RespondAsync(
-            $"🛑 **Смена завершена.**\n" +
-            $"Текущий MMR: **{order.CurrentMmr}** / Цель: **{order.TargetMmr}**\n" +
-            $"Игр бустера: {order.BoosterGamesPlayed} (из них владелец: {order.OwnerGamesPlayed})", 
-            ephemeral: true);
-    }
 
     // ==========================================
     // СПИСОК УСЛУГ И ПАГИНАЦИЯ
@@ -264,10 +149,11 @@ public async Task ShowMyServicesAsync(SocketMessageComponent component)
         {
             foreach (var service in pageItems)
             {
+                string priceLabel = service.Type == ServiceType.LP ? $"{service.Price} ₽ / игра" : $"{service.Price} ₽";
                 string description = 
                     $"**Бустер:** <@{service.BoosterId}>\n" +
-                    $"**MMR:** {service.MinMmr} - {service.MaxMmr}\n" +
-                    $"**Цена:** {service.Price} ₽\n" +
+                    (service.Type == ServiceType.Boost ? $"**MMR:** {service.MinMmr} - {service.MaxMmr}\n" : "") +
+                    $"**Цена:** {priceLabel}\n" +
                     $"[Steam профиль]({service.BoosterSteam})";
 
                 embed.AddField($"🎮 {service.Name} ({service.Type})", description, inline: false);
@@ -311,43 +197,43 @@ public async Task ShowMyServicesAsync(SocketMessageComponent component)
 
     public async Task HandleBuyServiceAsync(SocketMessageComponent component)
     {
-        // 1. СРАЗУ подтверждаем клик, чтобы Discord не выдал ошибку таймаута
-        await component.DeferAsync(ephemeral: true);
-
-        // 2. Достаем сохраненный выбор
         if (!_userSelections.TryGetValue(component.User.Id, out int serviceId))
         {
-            await component.FollowupAsync("❌ Ошибка: Вы не выбрали услугу. Сначала выберите её в меню!", ephemeral: true);
+            await component.RespondAsync("❌ Ошибка: Вы не выбрали услугу. Сначала выберите её в меню!", ephemeral: true);
             return;
         }
 
-        // 3. Ищем услугу в БД
         var service = await _db.GetServiceByIdAsync(serviceId);
         if (service == null)
         {
-            await component.FollowupAsync("❌ Услуга не найдена.", ephemeral: true);
+            await component.RespondAsync("❌ Услуга не найдена.", ephemeral: true);
             return;
         }
 
-        // 4. Создаем заказ в БД
-        var order = await _db.CreateOrderAsync(
-            clientId: component.User.Id,
-            boosterId: service.BoosterId,
-            serviceId: service.Id,
-            price: service.Price
-        );
+        // Если это LP - открываем модалку для ввода количества игр
+        if (service.Type == ServiceType.LP)
+        {
+            var modal = new ModalBuilder()
+                .WithTitle("Сколько игр LP отыграть?")
+                .WithCustomId($"modal_lp_{serviceId}")
+                .AddTextInput("Количество игр", "games_count", placeholder: "Например: 5", minLength: 1, maxLength: 2);
+            
+            await component.RespondWithModalAsync(modal.Build());
+            return;
+        }
 
-        // 5. Создаем ссылку через BEpusdt
+        // Для остальных услуг - стандартная оплата
+        await component.DeferAsync(ephemeral: true);
+
+        var order = await _db.CreateOrderAsync(component.User.Id, service.BoosterId, service.Id, service.Price);
+
         string webhookUrl = "https://lion-kotlas.ru/api/webhooks/bepusdt"; 
         string redirectUrl = "https://lion-kotlas.ru";
-        
-        // ВАЖНО: Для теста списываем 1.00 USD. 
-        // BEpusdt сам сконвертирует это в USDT (TRC-20) по курсу.
         decimal testAmount = 1.00m; 
         
         var payUrl = await _bepusdt.CreateInvoiceAsync(
             orderId: order.Id.ToString(),
-            amount: testAmount, 
+            amount: testAmount,
             orderDesc: service.Name,
             webhookUrl: webhookUrl,
             redirectUrl: redirectUrl
@@ -355,21 +241,129 @@ public async Task ShowMyServicesAsync(SocketMessageComponent component)
 
         if (payUrl == null)
         {
-            await component.FollowupAsync("❌ Ошибка при создании счета на оплату. Попробуйте позже.", ephemeral: true);
+            await component.FollowupAsync("❌ Ошибка при создании счета на оплату.", ephemeral: true);
             return;
         }
 
-        // 6. Отправляем ссылку пользователю
         var embed = new EmbedBuilder()
             .WithTitle("💳 Счет на оплату создан")
-            .WithDescription($"**Услуга:** {service.Name}\n**Сумма:** {service.Price} ₽\n\n" +
-                             $"Оплатите по ссылке ниже. Счет действителен 15 минут.\n" +
-                             $"[💸 Перейти к оплате]({payUrl})")
+            .WithDescription($"**Услуга:** {service.Name}\n**Сумма:** {service.Price} ₽\n\n[💸 Перейти к оплате]({payUrl})")
             .WithColor(Color.Green)
             .Build();
 
-        // Используем FollowupAsync, так как уже сделали DeferAsync
         await component.FollowupAsync(embed: embed, ephemeral: true);
+    }
+
+    // ==========================================
+    // КАБИНЕТ БУСТЕРА
+    // ==========================================
+
+    public async Task ShowMyServicesAsync(SocketMessageComponent component)
+    {
+        var orders = await _db.GetBoosterActiveOrdersAsync(component.User.Id);
+        
+        if (orders.Count == 0)
+        {
+            await component.RespondAsync("📦 У вас нет активных заказов в работе.", ephemeral: true);
+            return;
+        }
+
+        var embed = new EmbedBuilder()
+            .WithTitle("🛠 Ваши активные заказы")
+            .WithDescription("Управляйте сменой для каждого заказа.")
+            .WithColor(Color.Green);
+
+        var builder = new ComponentBuilder();
+        int row = 0;
+
+        foreach (var order in orders.Take(4)) 
+        {
+            string shiftStatus = order.IsShiftActive ? "🟢 Смена активна" : "🔴 Смена не начата";
+            
+            string progressText = "";
+            if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
+            {
+                progressText = $"**MMR:** {order.CurrentMmr} / {order.TargetMmr} (дельта +{order.TargetMmrDelta})";
+            }
+            else if (order.Service.Type == ServiceType.LP)
+            {
+                progressText = $"**Игры LP:** {order.TotalGamesPlayed} / {order.TargetGames}";
+            }
+            else if (order.Service.Type == ServiceType.Behavior)
+            {
+                progressText = $"**Порядочность:** Завершается вручную (Сыграно игр: {order.TotalGamesPlayed})";
+            }
+
+            string label = $"#{order.Id}: {(order.IsShiftActive ? "Закончить" : "Начать")}";
+            ButtonStyle style = order.IsShiftActive ? ButtonStyle.Danger : ButtonStyle.Success;
+            string btnId = order.IsShiftActive ? $"end_shift_{order.Id}" : $"start_shift_{order.Id}";
+            builder.WithButton(label, btnId, style, row: row);
+
+            embed.AddField(
+                $"Заказ #{order.Id} | {order.Service.Type}",
+                $"**Клиент:** <@{order.ClientId}>\n" +
+                $"{progressText}\n" +
+                $"**Игры:** бустер {order.BoosterGamesPlayed}, владелец {order.OwnerGamesPlayed}\n" +
+                $"**Цена:** {order.Price} ₽ | **Статус:** {shiftStatus}",
+                inline: false
+            );
+            row++;
+        }
+
+        builder.WithButton("⬅ Назад", "menu_services", ButtonStyle.Secondary, row: row);
+        await component.UpdateAsync(m => { m.Embed = embed.Build(); m.Components = builder.Build(); });
+    }
+
+    public async Task StartShiftAsync(SocketMessageComponent component, int orderId)
+    {
+        var order = await _db.GetOrderByIdAsync(orderId);
+        
+        if (order == null || order.BoosterId != component.User.Id)
+        {
+            await component.RespondAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
+            return;
+        }
+
+        if (order.IsShiftActive)
+        {
+            await component.RespondAsync("⚠️ Смена уже активна.", ephemeral: true);
+            return;
+        }
+
+        order.IsShiftActive = true;
+        order.ShiftStartedAt = DateTime.UtcNow;
+        
+        // Пересчет цели для MMR (если это буст)
+        if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
+        {
+            order.TargetMmr = order.CurrentMmr + order.TargetMmrDelta;
+        }
+        
+        await _db.UpdateOrderAsync(order);
+        
+        await component.RespondAsync($"✅ **Смена начата.**\nТекущий MMR: **{order.CurrentMmr}**\nЦель: **{order.TargetMmr}**", ephemeral: true);
+    }
+
+    public async Task EndShiftAsync(SocketMessageComponent component, int orderId)
+    {
+        var order = await _db.GetOrderByIdAsync(orderId);
+        
+        if (order == null || order.BoosterId != component.User.Id)
+        {
+            await component.RespondAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
+            return;
+        }
+
+        if (!order.IsShiftActive)
+        {
+            await component.RespondAsync("⚠️ Смена и так не активна.", ephemeral: true);
+            return;
+        }
+
+        order.IsShiftActive = false;
+        await _db.UpdateOrderAsync(order);
+        
+        await component.RespondAsync($"🛑 **Смена завершена.**", ephemeral: true);
     }
 
     // ==========================================
@@ -383,8 +377,8 @@ public async Task ShowMyServicesAsync(SocketMessageComponent component)
             .WithCustomId("modal_create_service")
             .AddTextInput("Название услуги", "service_name", placeholder: "Например: Буст MMR", minLength: 3)
             .AddTextInput("Стоимость (в рублях)", "service_price", placeholder: "Только число: 1500")
-            .AddTextInput("Тип услуги", "service_type", placeholder: "Boost, Calibration или LP")
-            .AddTextInput("Диапазон MMR", "mmr_range", placeholder: "Мин-Макс через дефис. Напр: 1000-3000")
+            .AddTextInput("Тип услуги", "service_type", placeholder: "Boost, Calibration, LP или Behavior")
+            .AddTextInput("Диапазон MMR", "mmr_range", placeholder: "Мин-Макс (для буста, иначе 0-0)", required: false)
             .AddTextInput("Ссылка на Steam профиль", "steam_link", placeholder: "https://steamcommunity.com/id/...");
 
         await component.RespondWithModalAsync(modal.Build());

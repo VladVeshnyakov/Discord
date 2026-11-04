@@ -7,7 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Threading.Tasks;
-using DiscordBirge.Services; // Убедись, что это есть для BepusdtService
+using DiscordBirge.Services;
 
 namespace DiscordBirge;
 
@@ -32,7 +32,7 @@ public class BotService
             using var scope = _services.CreateScope();
             
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
-            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>(); // ИСПРАВЛЕНО
+            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var actions = new UserActions(db, bepusdt);
             var handlers = new ButtonHandlers(actions);
             
@@ -45,19 +45,22 @@ public class BotService
             using var scope = _services.CreateScope();
             
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
-            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>(); // ИСПРАВЛЕНО ТУТ
+            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var actions = new UserActions(db, bepusdt);
     
             var handlers = new ButtonHandlers(actions);
             await handlers.HandleSelectMenuAsync(component);
         };
 
-        // Обработчик модальных окон
+        // Обработчик модальных окон (ИСПРАВЛЕНО ЗДЕСЬ)
         _client.ModalSubmitted += async modal => 
         {
             using var scope = _services.CreateScope();
+            
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
-            var modalHandlers = new ModalHandlers(db);
+            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>(); // Получаем сервис
+            
+            var modalHandlers = new ModalHandlers(db, bepusdt); // Передаем оба сервиса
             await modalHandlers.HandleModalAsync(modal);
         };
     }
