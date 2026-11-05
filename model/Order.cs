@@ -34,6 +34,8 @@ public class Order
     public int BoosterMmrChange { get; set; } = 0; 
     public int OwnerMmrChange { get; set; } = 0;
 
+    public ulong? ClientChannelId { get; set; }   // ID канала клиента
+    public ulong? BoosterChannelId { get; set; }  // ID канала бустера
     // --- ИГРЫ (для LP) ---
     public int TargetGames { get; set; } = 0; 
 

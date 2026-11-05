@@ -18,10 +18,13 @@ public class UserActions
 
     private static readonly Dictionary<ulong, int> _userSelections = new();
 
-    public UserActions(DbService db, BepusdtService bepusdt)
+    private readonly OrderChannelService _orderChannels;
+
+    public UserActions(DbService db, BepusdtService bepusdt, OrderChannelService orderChannels)
     {
         _db = db;
         _bepusdt = bepusdt;
+        _orderChannels = orderChannels;
     }
 
     public void SaveUserSelection(ulong userId, int serviceId)
@@ -313,59 +316,56 @@ public class UserActions
         builder.WithButton("⬅ Назад", "menu_services", ButtonStyle.Secondary, row: row);
         await component.UpdateAsync(m => { m.Embed = embed.Build(); m.Components = builder.Build(); });
     }
-
+    
     public async Task StartShiftAsync(SocketMessageComponent component, int orderId)
     {
+        await component.DeferAsync(ephemeral: true);
         var order = await _db.GetOrderByIdAsync(orderId);
-        
+    
         if (order == null || order.BoosterId != component.User.Id)
         {
-            await component.RespondAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
+            await component.FollowupAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
             return;
         }
 
         if (order.IsShiftActive)
         {
-            await component.RespondAsync("⚠️ Смена уже активна.", ephemeral: true);
+            await component.FollowupAsync("⚠️ Смена уже активна.", ephemeral: true);
             return;
         }
 
         order.IsShiftActive = true;
         order.ShiftStartedAt = DateTime.UtcNow;
-        
-        // Пересчет цели для MMR (если это буст)
+    
         if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
-        {
             order.TargetMmr = order.CurrentMmr + order.TargetMmrDelta;
-        }
-        
+    
         await _db.UpdateOrderAsync(order);
-        
-        await component.RespondAsync($"✅ **Смена начата.**\nТекущий MMR: **{order.CurrentMmr}**\nЦель: **{order.TargetMmr}**", ephemeral: true);
+    
+        // Обновляем панель в каналах
+        await _orderChannels.UpdateChannelsProgressAsync(order);
+    
+        await component.FollowupAsync("✅ Смена начата. Удачи!", ephemeral: true);
     }
 
     public async Task EndShiftAsync(SocketMessageComponent component, int orderId)
     {
+        await component.DeferAsync(ephemeral: true);
         var order = await _db.GetOrderByIdAsync(orderId);
-        
+    
         if (order == null || order.BoosterId != component.User.Id)
         {
-            await component.RespondAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
-            return;
-        }
-
-        if (!order.IsShiftActive)
-        {
-            await component.RespondAsync("⚠️ Смена и так не активна.", ephemeral: true);
+            await component.FollowupAsync("❌ Заказ не найден.", ephemeral: true);
             return;
         }
 
         order.IsShiftActive = false;
         await _db.UpdateOrderAsync(order);
-        
-        await component.RespondAsync($"🛑 **Смена завершена.**", ephemeral: true);
+    
+        await _orderChannels.UpdateChannelsProgressAsync(order);
+    
+        await component.FollowupAsync("🛑 Смена завершена.", ephemeral: true);
     }
-
     // ==========================================
     // МОДАЛКА ДОБАВЛЕНИЯ УСЛУГИ
     // ==========================================
@@ -382,5 +382,46 @@ public class UserActions
             .AddTextInput("Ссылка на Steam профиль", "steam_link", placeholder: "https://steamcommunity.com/id/...");
 
         await component.RespondWithModalAsync(modal.Build());
+    }
+    public async Task CreatePrivateChannelAsync(IGuild guild, IGuildUser user, string channelName)
+    {
+        var everyoneRole = guild.EveryoneRole;
+        var channelPermissions = new List<Overwrite>
+        {
+            new Overwrite(
+                everyoneRole.Id, 
+                PermissionTarget.Role, 
+                new OverwritePermissions(
+                    viewChannel: PermValue.Deny,
+                    sendMessages: PermValue.Deny
+                )
+            ),
+            new Overwrite(
+                user.Id, 
+                PermissionTarget.User, 
+                new OverwritePermissions(
+                    viewChannel: PermValue.Allow,
+                    sendMessages: PermValue.Allow,
+                    readMessageHistory: PermValue.Allow
+                )
+            )
+        };
+
+        // 2. Создаем канал
+        var channel = await guild.CreateTextChannelAsync(channelName, x =>
+        {
+            x.PermissionOverwrites = channelPermissions;
+            x.Topic = $"Личный канал пользователя {user.Username}";
+        });
+
+        // 3. Отправляем приветствие
+        var embed = new EmbedBuilder()
+            .WithTitle("💼 Ваш личный канал")
+            .WithDescription($"Привет, {user.Mention}! Здесь вы можете общаться с бустером.")
+            .WithColor(Color.Blue)
+            .Build();
+
+        await channel.SendMessageAsync(embed: embed);
+        Console.WriteLine($"[CHANNEL] Создан приватный канал #{channel.Name} для {user.Username}");
     }
 }

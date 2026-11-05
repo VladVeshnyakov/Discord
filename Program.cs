@@ -20,6 +20,7 @@ builder.Services.AddSingleton(new DiscordSocketClient(new DiscordSocketConfig
 }));
 
 // 3. Регистрация сервисов
+
 builder.Services.AddScoped<DbService>();
 builder.Services.AddHttpClient<BepusdtService>(); // <-- Регистрируем наш новый сервис
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -27,6 +28,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddSingleton<BotService>();
 builder.Services.AddHttpClient<OpenDotaService>();
 builder.Services.AddHostedService<MatchTrackerService>();
+builder.Services.AddScoped<OrderChannelService>();
 
 var app = builder.Build();
 

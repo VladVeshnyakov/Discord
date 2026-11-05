@@ -2,9 +2,14 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Cryptography;
 using System.Text;
 using Discord.WebSocket;
+using Discord;
 using DiscordBirge.Data;
 using DiscordBirge.Models;
+using DiscordBirge.Services;
 using Microsoft.Extensions.Configuration;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 [ApiController]
 [Route("api/webhooks/bepusdt")]
@@ -12,14 +17,20 @@ public class BepusdtWebhookController : ControllerBase
 {
     private readonly DbService _db;
     private readonly DiscordSocketClient _client;
+    private readonly OrderChannelService _orderChannels;
     private readonly string _apiToken;
     private readonly ulong _guildId;
     private readonly ulong _clientRoleId;
 
-    public BepusdtWebhookController(DbService db, DiscordSocketClient client, IConfiguration config)
+    public BepusdtWebhookController(
+        DbService db, 
+        DiscordSocketClient client, 
+        OrderChannelService orderChannels,
+        IConfiguration config)
     {
         _db = db;
         _client = client;
+        _orderChannels = orderChannels;
         _apiToken = config["Epusdt:ApiToken"]!;
         _guildId = ulong.Parse(config["Discord:GuildId"]!);
         _clientRoleId = ulong.Parse(config["Discord:ClientRoleId"]!);
@@ -28,37 +39,31 @@ public class BepusdtWebhookController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> HandleWebhook([FromForm] BepusdtNotify notify)
     {
-        // 1. Проверяем подпись
         if (!ValidateSignature(notify))
-        {
-            Console.WriteLine("[BEPUSDT WEBHOOK] Invalid signature");
             return Unauthorized();
-        }
 
-        // 2. Проверяем статус (2 = оплачено)
         if (notify.status == 2)
         {
             var order = await _db.GetOrderByCustomIdAsync(notify.order_id);
             if (order != null && order.Status != OrderStatus.Paid)
             {
                 await _db.UpdateOrderStatusAsync(order.Id, OrderStatus.Paid);
-                Console.WriteLine($"[BEPUSDT WEBHOOK] Order {order.Id} marked as Paid.");
+                Console.WriteLine($"[WEBHOOK] Order #{order.Id} paid");
 
+                // Выдаем роль клиенту
                 var guild = _client.GetGuild(_guildId);
                 var user = guild?.GetUser(order.ClientId);
-                if (user != null)
+                if (user != null && guild != null)
                 {
-                    var role = guild!.GetRole(_clientRoleId);
-                    if (role != null)
-                    {
-                        await user.AddRoleAsync(role);
-                        Console.WriteLine($"[BEPUSDT WEBHOOK] Role given to {user.Username}");
-                    }
+                    var role = guild.GetRole(_clientRoleId);
+                    if (role != null) await user.AddRoleAsync(role);
                 }
+
+                // Создаем каналы через сервис
+                await _orderChannels.CreateOrderChannelsAsync(order);
             }
         }
 
-        // BEpusdt требует вернуть "success"
         return Content("success", "text/plain");
     }
 
@@ -75,22 +80,17 @@ public class BepusdtWebhookController : ControllerBase
             { "status", notify.status.ToString() }
         };
 
-        var filtered = parameters
-            .Where(kv => !string.IsNullOrEmpty(kv.Value))
-            .OrderBy(kv => kv.Key, StringComparer.Ordinal);
+        var filtered = parameters.Where(kv => !string.IsNullOrEmpty(kv.Value))
+            .OrderBy(kv => kv.Key, System.StringComparer.Ordinal);
 
         var sb = new StringBuilder();
-        foreach (var kv in filtered)
-        {
-            sb.Append($"{kv.Key}={kv.Value}&");
-        }
+        foreach (var kv in filtered) sb.Append($"{kv.Key}={kv.Value}&");
+        sb.Length--;
         sb.Append(_apiToken);
 
         using var md5 = MD5.Create();
-        var hashBytes = md5.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()));
-        var computed = Convert.ToHexString(hashBytes).ToLower();
-
-        return computed == notify.signature.ToLower();
+        var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()));
+        return Convert.ToHexString(hash).ToLower() == notify.signature.ToLower();
     }
 }
 

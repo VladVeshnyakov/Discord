@@ -26,41 +26,46 @@ public class BotService
         _client.Log += LogAsync;
         _client.Ready += ReadyAsync;
         
-        // Обработчик кнопок
+        // 1. ОБРАБОТЧИК КНОПОК
         _client.ButtonExecuted += async component => 
         {
             using var scope = _services.CreateScope();
             
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
-            var actions = new UserActions(db, bepusdt);
+            var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>(); // <-- ДОБАВЛЕНО
+            
+            var actions = new UserActions(db, bepusdt, orderChannels);
             var handlers = new ButtonHandlers(actions);
             
             await handlers.HandleButtonAsync(component);
         };
         
-        // Обработчик выпадающего меню
+        // 2. ОБРАБОТЧИК ВЫПАДАЮЩЕГО МЕНЮ
         _client.SelectMenuExecuted += async component =>
         {
             using var scope = _services.CreateScope();
             
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
-            var actions = new UserActions(db, bepusdt);
-    
+            var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>(); // <-- ДОБАВЛЕНО
+            
+            var actions = new UserActions(db, bepusdt, orderChannels);
             var handlers = new ButtonHandlers(actions);
+            
             await handlers.HandleSelectMenuAsync(component);
         };
 
-        // Обработчик модальных окон (ИСПРАВЛЕНО ЗДЕСЬ)
+        // 3. ОБРАБОТЧИК МОДАЛЬНЫХ ОКОН
         _client.ModalSubmitted += async modal => 
         {
             using var scope = _services.CreateScope();
             
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
-            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>(); // Получаем сервис
+            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             
-            var modalHandlers = new ModalHandlers(db, bepusdt); // Передаем оба сервиса
+            // Передаем нужные сервисы в ModalHandlers
+            var modalHandlers = new ModalHandlers(db, bepusdt);
             await modalHandlers.HandleModalAsync(modal);
         };
     }
@@ -81,7 +86,7 @@ public class BotService
     {
         Console.WriteLine($"Бот {_client.CurrentUser.Username} подключен!");
         
-        ulong channelId = 1565445743379095653; 
+        ulong channelId = 1565445743379095653; // Твой ID канала для главного меню
         var channel = _client.GetChannel(channelId) as IMessageChannel;
 
         if (channel != null)

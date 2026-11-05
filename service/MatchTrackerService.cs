@@ -22,6 +22,8 @@ public class MatchTrackerService : BackgroundService
             using (var scope = _services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>(); // <-- получаем здесь
+                
                 var activeOrders = await db.Orders
                     .Include(o => o.Service)
                     .Where(o => o.Status == OrderStatus.InProgress)
@@ -29,14 +31,14 @@ public class MatchTrackerService : BackgroundService
 
                 foreach (var order in activeOrders)
                 {
-                    await ProcessOrderMatchesAsync(db, order);
+                    await ProcessOrderMatchesAsync(db, orderChannels, order); // <-- передаем параметром
                 }
             }
             await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
         }
     }
 
-    private async Task ProcessOrderMatchesAsync(AppDbContext db, Order order)
+    private async Task ProcessOrderMatchesAsync(AppDbContext db, OrderChannelService orderChannels, Order order)
     {
         var matches = await _dota.GetRecentMatchesAsync(order.DotaAccountId);
         
@@ -46,6 +48,8 @@ public class MatchTrackerService : BackgroundService
             .ToList();
 
         if (!newMatches.Any()) return;
+
+        bool orderCompleted = false;
 
         foreach (var match in newMatches)
         {
@@ -65,7 +69,6 @@ public class MatchTrackerService : BackgroundService
 
             order.LastProcessedMatchId = match.MatchId;
 
-            // === ЛОГИКА ДЛЯ БУСТА И КАЛИБРОВКИ (Считаем MMR) ===
             if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
             {
                 bool isRadiant = match.PlayerSlot < 128;
@@ -80,29 +83,34 @@ public class MatchTrackerService : BackgroundService
                 {
                     order.Status = OrderStatus.Completed;
                     order.IsShiftActive = false;
+                    orderCompleted = true;
                     Console.WriteLine($"[TRACKER] Заказ {order.Id} (MMR) выполнен! Выплата: {order.BoosterTotalPayout:F2}р");
                     break;
                 }
             }
-            // === ЛОГИКА ДЛЯ ОТМЫВА LP (Считаем Игры) ===
             else if (order.Service.Type == ServiceType.LP)
             {
                 if (order.TotalGamesPlayed >= order.TargetGames)
                 {
                     order.Status = OrderStatus.Completed;
                     order.IsShiftActive = false;
+                    orderCompleted = true;
                     Console.WriteLine($"[TRACKER] Заказ {order.Id} (LP) выполнен! Игр: {order.TotalGamesPlayed}. Выплата: {order.BoosterTotalPayout:F2}р");
                     break;
                 }
             }
-            // === ЛОГИКА ДЛЯ ПОРЯДОЧНОСТИ (Behavior) ===
             else if (order.Service.Type == ServiceType.Behavior)
             {
-                // Завершается вручную через админку
                 Console.WriteLine($"[TRACKER] Заказ {order.Id} (Порядочность). Сыграна игра. Всего: {order.TotalGamesPlayed}");
             }
         }
 
         await db.SaveChangesAsync();
+
+        // Обновляем панели в каналах после сохранения данных
+        await orderChannels.UpdateChannelsProgressAsync(order);
+
+        // Если заказ завершен, можно опционально удалить каналы через минуту или оставить для истории
+        // if (orderCompleted) await orderChannels.DeleteOrderChannelsAsync(order);
     }
 }

@@ -22,12 +22,12 @@ public static class DbSeeder
         string s2 = "https://steamcommunity.com/id/carry_main";
         string s3 = "https://steamcommunity.com/id/support_life";
         string s4 = "https://steamcommunity.com/id/immortal_player";
-        string s5 = "https://steamcommunity.com/id/hard_work";
+        string s5 = "https://steamcommunity.com/profiles/76561198865166830";
 
         // Замени эти ID на реальные ID пользователей с твоего сервера для теста упоминаний
-        ulong b1 = 1564799326150992042; 
+        ulong b1 = 1563714292086481046; 
         ulong b2 = 123456789012345678;
-        ulong b3 = 987654321098765432;
+        ulong b3 = 90;
 
         var services = new[]
         {
