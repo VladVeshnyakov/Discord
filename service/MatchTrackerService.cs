@@ -1,6 +1,11 @@
 using DiscordBirge.Data;
 using DiscordBirge.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace DiscordBirge.Services;
 
@@ -22,7 +27,7 @@ public class MatchTrackerService : BackgroundService
             using (var scope = _services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>(); // <-- получаем здесь
+                var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
                 
                 var activeOrders = await db.Orders
                     .Include(o => o.Service)
@@ -31,7 +36,7 @@ public class MatchTrackerService : BackgroundService
 
                 foreach (var order in activeOrders)
                 {
-                    await ProcessOrderMatchesAsync(db, orderChannels, order); // <-- передаем параметром
+                    await ProcessOrderMatchesAsync(db, orderChannels, order);
                 }
             }
             await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
@@ -49,8 +54,6 @@ public class MatchTrackerService : BackgroundService
 
         if (!newMatches.Any()) return;
 
-        bool orderCompleted = false;
-
         foreach (var match in newMatches)
         {
             DateTime matchTime = DateTimeOffset.FromUnixTimeSeconds(match.StartTime).UtcDateTime;
@@ -59,9 +62,7 @@ public class MatchTrackerService : BackgroundService
             if (order.IsShiftActive && order.ShiftStartedAt.HasValue)
             {
                 if (matchTime >= order.ShiftStartedAt.Value.AddMinutes(-5))
-                {
                     isBoosterPlayed = true;
-                }
             }
 
             if (isBoosterPlayed) order.BoosterGamesPlayed++;
@@ -83,7 +84,6 @@ public class MatchTrackerService : BackgroundService
                 {
                     order.Status = OrderStatus.Completed;
                     order.IsShiftActive = false;
-                    orderCompleted = true;
                     Console.WriteLine($"[TRACKER] Заказ {order.Id} (MMR) выполнен! Выплата: {order.BoosterTotalPayout:F2}р");
                     break;
                 }
@@ -94,23 +94,17 @@ public class MatchTrackerService : BackgroundService
                 {
                     order.Status = OrderStatus.Completed;
                     order.IsShiftActive = false;
-                    orderCompleted = true;
-                    Console.WriteLine($"[TRACKER] Заказ {order.Id} (LP) выполнен! Игр: {order.TotalGamesPlayed}. Выплата: {order.BoosterTotalPayout:F2}р");
+                    Console.WriteLine($"[TRACKER] Заказ {order.Id} (LP) выполнен! Выплата: {order.BoosterTotalPayout:F2}р");
                     break;
                 }
             }
             else if (order.Service.Type == ServiceType.Behavior)
             {
-                Console.WriteLine($"[TRACKER] Заказ {order.Id} (Порядочность). Сыграна игра. Всего: {order.TotalGamesPlayed}");
+                Console.WriteLine($"[TRACKER] Заказ {order.Id} (Порядочность). Всего: {order.TotalGamesPlayed}");
             }
         }
 
         await db.SaveChangesAsync();
-
-        // Обновляем панели в каналах после сохранения данных
-        await orderChannels.UpdateChannelsProgressAsync(order);
-
-        // Если заказ завершен, можно опционально удалить каналы через минуту или оставить для истории
-        // if (orderCompleted) await orderChannels.DeleteOrderChannelsAsync(order);
+        await orderChannels.UpdateThreadsProgressAsync(order);
     }
 }

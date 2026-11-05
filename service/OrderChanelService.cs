@@ -4,7 +4,6 @@ using DiscordBirge.Data;
 using DiscordBirge.Models;
 using Microsoft.Extensions.Configuration;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -15,164 +14,124 @@ public class OrderChannelService
     private readonly DiscordSocketClient _client;
     private readonly DbService _db;
     private readonly ulong _guildId;
+    private readonly ulong _ordersChannelId;
 
     public OrderChannelService(DiscordSocketClient client, DbService db, IConfiguration config)
     {
         _client = client;
         _db = db;
         _guildId = ulong.Parse(config["Discord:GuildId"]!);
+        _ordersChannelId = ulong.Parse(config["Discord:OrdersChannelId"]!);
     }
 
-    // ==========================================
-    // СОЗДАНИЕ КАНАЛОВ
-    // ==========================================
-
-    public async Task CreateOrderChannelsAsync(Order order)
+    public async Task CreateOrderThreadsAsync(Order order)
     {
         var guild = _client.GetGuild(_guildId);
-        if (guild == null) return;
+        var ordersChannel = guild?.GetTextChannel(_ordersChannelId);
+        if (ordersChannel == null) return;
 
         var client = guild.GetUser(order.ClientId);
         var booster = guild.GetUser(order.BoosterId);
 
-        ulong clientChannelId = 0;
-        ulong boosterChannelId = 0;
+        ulong? clientThreadId = null;
+        ulong? boosterThreadId = null;
 
-        // Канал для клиента
+        // 1. Ветка клиента
         if (client != null)
         {
-            var channel = await CreatePrivateChannelAsync(
-                guild, 
-                new[] { client.Id, _client.CurrentUser.Id }, 
-                $"order-{order.Id}-client"
-            );
-            
-            if (channel != null)
+            try
             {
-                clientChannelId = channel.Id;
-                await channel.SendMessageAsync(
+                var thread = await ordersChannel.CreateThreadAsync(
+                    name: $"заказ-{order.Id}-клиент",
+                    type: ThreadType.PrivateThread,
+                    autoArchiveDuration: ThreadArchiveDuration.OneDay,
+                    invitable: false
+                );
+                await thread.AddUserAsync(client);
+                await thread.JoinAsync();
+                clientThreadId = thread.Id;
+                
+                await thread.SendMessageAsync(
                     embed: BuildProgressEmbed(order, "Ожидает начала работы"),
                     components: BuildClientButtons(order)
                 );
             }
+            catch (Exception ex) { Console.WriteLine($"[THREAD ERROR] Client: {ex.Message}"); }
         }
 
-        // Канал для бустера
+        // 2. Ветка бустера
         if (booster != null)
         {
-            var channel = await CreatePrivateChannelAsync(
-                guild, 
-                new[] { booster.Id, client?.Id ?? 0, _client.CurrentUser.Id }.Where(id => id != 0).ToArray(),
-                $"order-{order.Id}-booster"
-            );
-            
-            if (channel != null)
+            try
             {
-                boosterChannelId = channel.Id;
-                await channel.SendMessageAsync(
+                var thread = await ordersChannel.CreateThreadAsync(
+                    name: $"заказ-{order.Id}-бустер",
+                    type: ThreadType.PrivateThread,
+                    autoArchiveDuration: ThreadArchiveDuration.OneDay,
+                    invitable: false
+                );
+                await thread.AddUserAsync(booster);
+                await thread.JoinAsync();
+                boosterThreadId = thread.Id;
+
+                await thread.SendMessageAsync(
                     embed: BuildProgressEmbed(order, "Ожидает начала работы"),
                     components: BuildBoosterButtons(order)
                 );
             }
+            catch (Exception ex) { Console.WriteLine($"[THREAD ERROR] Booster: {ex.Message}"); }
         }
 
-        // Сохраняем ID каналов в БД
-        if (clientChannelId != 0 || boosterChannelId != 0)
+        if (clientThreadId.HasValue || boosterThreadId.HasValue)
         {
-            await _db.UpdateOrderChannelsAsync(order.Id, clientChannelId, boosterChannelId);
-            Console.WriteLine($"[CHANNELS] Order #{order.Id}: client={clientChannelId}, booster={boosterChannelId}");
+            await _db.UpdateOrderThreadsAsync(order.Id, clientThreadId, boosterThreadId);
+            Console.WriteLine($"[THREADS] Order #{order.Id}: client={clientThreadId}, booster={boosterThreadId}");
         }
     }
 
-    // ==========================================
-    // ОБНОВЛЕНИЕ ПРОГРЕССА В КАНАЛАХ
-    // ==========================================
-
-    public async Task UpdateChannelsProgressAsync(Order order)
+    public async Task UpdateThreadsProgressAsync(Order order)
     {
         var status = GetStatusText(order);
         var embed = BuildProgressEmbed(order, status);
 
-        if (order.ClientChannelId.HasValue)
+        if (order.ClientThreadId.HasValue)
         {
-            var clientChannel = _client.GetChannel(order.ClientChannelId.Value) as IMessageChannel;
-            if (clientChannel != null)
-                await UpdateLastBotMessageAsync(clientChannel, embed, BuildClientButtons(order));
+            var thread = _client.GetChannel(order.ClientThreadId.Value) as IThreadChannel;
+            if (thread != null)
+                await UpdateLastBotMessageAsync(thread, embed, BuildClientButtons(order));
         }
 
-        if (order.BoosterChannelId.HasValue)
+        if (order.BoosterThreadId.HasValue)
         {
-            var boosterChannel = _client.GetChannel(order.BoosterChannelId.Value) as IMessageChannel;
-            if (boosterChannel != null)
-                await UpdateLastBotMessageAsync(boosterChannel, embed, BuildBoosterButtons(order));
-        }
-    }
-
-    // ==========================================
-    // УДАЛЕНИЕ КАНАЛОВ
-    // ==========================================
-
-    public async Task DeleteOrderChannelsAsync(Order order)
-    {
-        if (order.ClientChannelId.HasValue)
-        {
-            var ch = _client.GetChannel(order.ClientChannelId.Value) as IGuildChannel;
-            if (ch != null) await ch.DeleteAsync();
-        }
-        if (order.BoosterChannelId.HasValue)
-        {
-            var ch = _client.GetChannel(order.BoosterChannelId.Value) as IGuildChannel;
-            if (ch != null) await ch.DeleteAsync();
+            var thread = _client.GetChannel(order.BoosterThreadId.Value) as IThreadChannel;
+            if (thread != null)
+                await UpdateLastBotMessageAsync(thread, embed, BuildBoosterButtons(order));
         }
     }
 
-    // ==========================================
-    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    // ==========================================
-
-    private async Task<ITextChannel?> CreatePrivateChannelAsync(IGuild guild, ulong[] allowedUserIds, string channelName)
+    private async Task UpdateLastBotMessageAsync(IThreadChannel thread, Embed embed, MessageComponent components)
     {
         try
         {
-            var overwrites = new List<Overwrite>
+            var messages = await thread.GetMessagesAsync(5).FlattenAsync();
+            var botMessage = messages.FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id) as IUserMessage;
+            
+            if (botMessage != null)
             {
-                // 1. Запрещаем всем (роль @everyone) видеть канал
-                new Overwrite(guild.EveryoneRole.Id, PermissionTarget.Role, 
-                    new OverwritePermissions(viewChannel: PermValue.Deny))
-            };
-
-            // 2. Разрешаем доступ клиенту и бустеру (тем, кто передан в allowedUserIds)
-            foreach (var userId in allowedUserIds.Distinct())
-            {
-                overwrites.Add(new Overwrite(userId, PermissionTarget.User, 
-                    new OverwritePermissions(
-                        viewChannel: PermValue.Allow,
-                        sendMessages: PermValue.Allow,
-                        readMessageHistory: PermValue.Allow,
-                        attachFiles: PermValue.Allow
-                    )));
+                await botMessage.ModifyAsync(m => 
+                { 
+                    m.Embed = embed; 
+                    m.Components = components; 
+                });
             }
-
-            // 3. Разрешаем доступ самому боту (используем его ID напрямую)
-            overwrites.Add(new Overwrite(_client.CurrentUser.Id, PermissionTarget.User, 
-                new OverwritePermissions(
-                    viewChannel: PermValue.Allow,
-                    sendMessages: PermValue.Allow,
-                    readMessageHistory: PermValue.Allow,
-                    manageChannel: PermValue.Allow,
-                    manageMessages: PermValue.Allow
-                )));
-
-            // 4. Создаем канал с этими правами
-            return await guild.CreateTextChannelAsync(channelName, x =>
+            else
             {
-                x.PermissionOverwrites = overwrites;
-            });
+                await thread.SendMessageAsync(embed: embed, components: components);
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[CHANNEL ERROR] {ex.Message}");
-            return null;
+            Console.WriteLine($"[THREAD UPDATE ERROR] {ex.Message}");
         }
     }
 
@@ -186,17 +145,11 @@ public class OrderChannelService
             .WithFooter($"Цена: {order.Price} ₽");
 
         if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
-        {
             embed.AddField("MMR", $"{order.CurrentMmr} / {order.TargetMmr}", true);
-        }
         else if (order.Service.Type == ServiceType.LP)
-        {
             embed.AddField("Игры LP", $"{order.TotalGamesPlayed} / {order.TargetGames}", true);
-        }
         else if (order.Service.Type == ServiceType.Behavior)
-        {
             embed.AddField("Сыграно игр", order.TotalGamesPlayed.ToString(), true);
-        }
 
         if (order.TotalGamesPlayed > 0)
         {
@@ -208,55 +161,22 @@ public class OrderChannelService
         return embed.Build();
     }
 
+    private MessageComponent BuildClientButtons(Order order)
+    {
+        return new ComponentBuilder().Build();
+    }
+
     private MessageComponent BuildBoosterButtons(Order order)
     {
         var builder = new ComponentBuilder();
-        if (order.Status == OrderStatus.Completed)
-            return builder.Build();
+        if (order.Status == OrderStatus.Completed) return builder.Build();
 
         if (order.IsShiftActive)
-        {
             builder.WithButton("🔴 Закончить смену", $"end_shift_{order.Id}", ButtonStyle.Danger);
-        }
         else
-        {
             builder.WithButton("🟢 Начать смену", $"start_shift_{order.Id}", ButtonStyle.Success);
-        }
+        
         return builder.Build();
-    }
-
-    private MessageComponent BuildClientButtons(Order order)
-    {
-        var builder = new ComponentBuilder();
-        // Пока что у клиента только информационные кнопки
-        // Можно добавить "Связаться с поддержкой", но это отдельная фича
-        return builder.Build();
-    }
-
-    private async Task UpdateLastBotMessageAsync(IMessageChannel channel, Embed embed, MessageComponent components)
-    {
-        try
-        {
-            var messages = await channel.GetMessagesAsync(5).FlattenAsync();
-            var botMessage = messages.FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id) as IUserMessage;
-            
-            if (botMessage != null)
-            {
-                await botMessage.ModifyAsync(m => 
-                { 
-                    m.Embed = embed; 
-                    m.Components = components; 
-                });
-            }
-            else
-            {
-                await channel.SendMessageAsync(embed: embed, components: components);
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[CHANNEL UPDATE ERROR] {ex.Message}");
-        }
     }
 
     private string GetStatusText(Order order)

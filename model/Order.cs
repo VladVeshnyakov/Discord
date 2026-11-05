@@ -13,9 +13,8 @@ public class Order
     public int ServiceId { get; set; }
     public ServiceItem Service { get; set; }
     
-    // Итоговая сумма заказа
     public decimal Price { get; set; } 
-    public decimal BasePricePerGame { get; set; } // Цена за 1 игру (для LP)
+    public decimal BasePricePerGame { get; set; }
 
     public OrderStatus Status { get; set; } = OrderStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -34,8 +33,6 @@ public class Order
     public int BoosterMmrChange { get; set; } = 0; 
     public int OwnerMmrChange { get; set; } = 0;
 
-    public ulong? ClientChannelId { get; set; }   // ID канала клиента
-    public ulong? BoosterChannelId { get; set; }  // ID канала бустера
     // --- ИГРЫ (для LP) ---
     public int TargetGames { get; set; } = 0; 
 
@@ -47,15 +44,17 @@ public class Order
     public DateTime? ShiftStartedAt { get; set; }
     public long? LastProcessedMatchId { get; set; } 
 
+    // --- ВЕТКИ DISCORD ---
+    public ulong? ClientThreadId { get; set; }
+    public ulong? BoosterThreadId { get; set; }
+
     // --- ФОРМУЛЫ РАСЧЕТА ---
     [NotMapped]
     public int TotalGamesPlayed => BoosterGamesPlayed + OwnerGamesPlayed;
 
-    // Цена одной игры для выплаты (Общая сумма / Общее кол-во игр)
     [NotMapped]
     public decimal PricePerGame => TotalGamesPlayed > 0 ? Price / TotalGamesPlayed : BasePricePerGame;
 
-    // Сколько заработал бустер
     [NotMapped]
     public decimal BoosterTotalPayout => PricePerGame * BoosterGamesPlayed;
 }

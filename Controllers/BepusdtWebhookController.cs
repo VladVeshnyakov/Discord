@@ -1,15 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Cryptography;
 using System.Text;
+using System.Linq;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using Discord.WebSocket;
-using Discord;
 using DiscordBirge.Data;
 using DiscordBirge.Models;
 using DiscordBirge.Services;
 using Microsoft.Extensions.Configuration;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 
 [ApiController]
 [Route("api/webhooks/bepusdt")]
@@ -40,7 +39,10 @@ public class BepusdtWebhookController : ControllerBase
     public async Task<IActionResult> HandleWebhook([FromForm] BepusdtNotify notify)
     {
         if (!ValidateSignature(notify))
+        {
+            Console.WriteLine("[BEPUSDT WEBHOOK] Invalid signature");
             return Unauthorized();
+        }
 
         if (notify.status == 2)
         {
@@ -48,9 +50,8 @@ public class BepusdtWebhookController : ControllerBase
             if (order != null && order.Status != OrderStatus.Paid)
             {
                 await _db.UpdateOrderStatusAsync(order.Id, OrderStatus.Paid);
-                Console.WriteLine($"[WEBHOOK] Order #{order.Id} paid");
+                Console.WriteLine($"[BEPUSDT WEBHOOK] Order {order.Id} marked as Paid.");
 
-                // Выдаем роль клиенту
                 var guild = _client.GetGuild(_guildId);
                 var user = guild?.GetUser(order.ClientId);
                 if (user != null && guild != null)
@@ -59,8 +60,8 @@ public class BepusdtWebhookController : ControllerBase
                     if (role != null) await user.AddRoleAsync(role);
                 }
 
-                // Создаем каналы через сервис
-                await _orderChannels.CreateOrderChannelsAsync(order);
+                // Создаем две ветки (клиент + бустер)
+                await _orderChannels.CreateOrderThreadsAsync(order);
             }
         }
 

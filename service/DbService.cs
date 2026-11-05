@@ -92,6 +92,17 @@ public class DbService
         }
     }
 
+    public async Task UpdateOrderThreadsAsync(int orderId, ulong? clientThreadId, ulong? boosterThreadId)
+    {
+        var order = await _db.Orders.FindAsync(orderId);
+        if (order != null)
+        {
+            order.ClientThreadId = clientThreadId;
+            order.BoosterThreadId = boosterThreadId;
+            await _db.SaveChangesAsync();
+        }
+    }
+
     public async Task<List<Order>> GetBoosterActiveOrdersAsync(ulong boosterId)
     {
         return await _db.Orders
@@ -99,25 +110,6 @@ public class DbService
             .Where(o => o.BoosterId == boosterId && 
                        (o.Status == OrderStatus.InProgress || o.Status == OrderStatus.Paid))
             .OrderByDescending(o => o.CreatedAt)
-            .ToListAsync();
-    }
-    public async Task UpdateOrderChannelsAsync(int orderId, ulong clientChannelId, ulong boosterChannelId)
-    {
-        var order = await _db.Orders.FindAsync(orderId);
-        if (order != null)
-        {
-            order.ClientChannelId = clientChannelId;
-            order.BoosterChannelId = boosterChannelId;
-            await _db.SaveChangesAsync();
-        }
-    }
-
-    public async Task<List<Order>> GetActiveOrdersWithChannelsAsync()
-    {
-        return await _db.Orders
-            .Include(o => o.Service)
-            .Where(o => (o.Status == OrderStatus.InProgress || o.Status == OrderStatus.Paid) 
-                        && (o.ClientChannelId != null || o.BoosterChannelId != null))
             .ToListAsync();
     }
 }

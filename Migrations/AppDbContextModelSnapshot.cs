@@ -42,7 +42,13 @@ namespace DiscordBirge.Migrations
                     b.Property<int>("BoosterMmrChange")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("BoosterThreadId")
+                        .HasColumnType("numeric(20,0)");
+
                     b.Property<decimal>("ClientId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<decimal?>("ClientThreadId")
                         .HasColumnType("numeric(20,0)");
 
                     b.Property<DateTime>("CreatedAt")
