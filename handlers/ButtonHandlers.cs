@@ -17,84 +17,130 @@ public class ButtonHandlers
 
     public async Task HandleSelectMenuAsync(SocketMessageComponent component)
     {
+        await component.DeferAsync(ephemeral: true);
+
         if (component.Data.CustomId == "select_service_to_buy")
         {
             var selected = component.Data.Values.FirstOrDefault();
             if (int.TryParse(selected, out int serviceId))
             {
                 _actions.SaveUserSelection(component.User.Id, serviceId);
-                await component.RespondAsync("✅ Услуга выбрана! Теперь нажмите «Купить».", ephemeral: true);
+                await component.FollowupAsync("✅ Услуга выбрана! Теперь нажмите «Купить».", ephemeral: true);
+            }
+            else
+            {
+                await component.FollowupAsync("❌ Ошибка при выборе услуги.", ephemeral: true);
             }
         }
         else
         {
-            await component.RespondAsync("Выбор принят.", ephemeral: true);
+            await component.FollowupAsync("Выбор принят.", ephemeral: true);
         }
     }
 
     public async Task HandleButtonAsync(SocketMessageComponent component)
     {
-        if (component.Data.CustomId.StartsWith("page_"))
-        {
-            var parts = component.Data.CustomId.Split('_');
-            if (parts.Length == 3)
-            {
-                string filterPart = parts[1];
-                int page = int.Parse(parts[2]);
+        var id = component.Data.CustomId;
 
-                ServiceType? filterType = filterPart switch
+        // ==========================================
+        // 1. ДИНАМИЧЕСКИЕ КНОПКИ (пагинация, смены)
+        // ==========================================
+        if (id.StartsWith("page_"))
+        {
+            var parts = id.Split('_');
+            if (parts.Length == 3 && int.TryParse(parts[2], out int page))
+            {
+                ServiceType? filterType = parts[1] switch
                 {
                     "Boost" => ServiceType.Boost,
                     "Calibration" => ServiceType.Calibration,
                     "LP" => ServiceType.LP,
                     _ => null
                 };
-
                 await _actions.FilterServicesAsync(component, filterType, page);
                 return;
             }
         }
 
-        if (component.Data.CustomId.StartsWith("start_shift_"))
+        if (id.StartsWith("start_shift_"))
         {
-            var parts = component.Data.CustomId.Split('_');
-            if (parts.Length == 3 && int.TryParse(parts[2], out int startOrderId))
+            if (int.TryParse(id.Replace("start_shift_", ""), out int orderId))
             {
-                await _actions.StartShiftAsync(component, startOrderId);
+                await _actions.StartShiftAsync(component, orderId);
                 return;
             }
         }
 
-        if (component.Data.CustomId.StartsWith("end_shift_"))
+        if (id.StartsWith("end_shift_"))
         {
-            var parts = component.Data.CustomId.Split('_');
-            if (parts.Length == 3 && int.TryParse(parts[2], out int endOrderId))
+            if (int.TryParse(id.Replace("end_shift_", ""), out int orderId))
             {
-                await _actions.EndShiftAsync(component, endOrderId);
+                await _actions.EndShiftAsync(component, orderId);
                 return;
             }
         }
 
-        switch (component.Data.CustomId)
+        // ==========================================
+        // 2. КЛИЕНТСКИЕ КНОПКИ
+        // ==========================================
+        switch (id)
         {
-            case "create_ticket": await _actions.CreateTicketAsync(component); break;
-            case "menu_history": await _actions.ShowHistoryAsync(component); break;
-            case "menu_services": await _actions.ShowServicesMenuAsync(component); break;
-            case "services_my": await _actions.ShowMyServicesAsync(component); break;
-            case "services_add": await _actions.OpenAddServiceModalAsync(component); break;
-            case "services_all_exchange": await _actions.ShowAllExchangeServicesAsync(component); break;
-            case "menu_back": await _actions.ShowMainMenuAsync(component); break;
-            
-            case "filter_all": await _actions.FilterServicesAsync(component, null, 0); break;
-            case "filter_boost": await _actions.FilterServicesAsync(component, ServiceType.Boost, 0); break;
-            case "filter_calibration": await _actions.FilterServicesAsync(component, ServiceType.Calibration, 0); break;
-            case "filter_lp": await _actions.FilterServicesAsync(component, ServiceType.LP, 0); break;
-            
-            case "buy_service_btn": await _actions.HandleBuyServiceAsync(component); break;
-
-            default:
-                await component.RespondAsync("Неизвестная кнопка.", ephemeral: true);
-                break;
+            case "buy_service_btn":
+                await _actions.HandleBuyServiceAsync(component);
+                return;
+            case "menu_history":
+                await _actions.ShowHistoryAsync(component);
+                return;
         }
+
+        // ==========================================
+        // 3. КНОПКИ БУСТЕРА (ТРЕНЕРА)
+        // ==========================================
+        switch (id)
+        {
+            case "services_my":
+                await _actions.ShowMyServicesAsync(component);
+                return;
+            case "services_add":
+                await _actions.OpenAddServiceModalAsync(component);
+                return;
+        }
+
+        // ==========================================
+        // 4. ОБЩИЕ КНОПКИ (навигация, фильтры)
+        // ==========================================
+        switch (id)
+        {
+            case "create_ticket":
+                await _actions.CreateTicketAsync(component);
+                return;
+            case "menu_services":
+                await _actions.ShowServicesMenuAsync(component);
+                return;
+            case "services_all_exchange":
+                await _actions.ShowAllExchangeServicesAsync(component);
+                return;
+            case "menu_back":
+                await _actions.ShowMainMenuAsync(component);
+                return;
+            
+            case "filter_all":
+                await _actions.FilterServicesAsync(component, null, 0);
+                return;
+            case "filter_boost":
+                await _actions.FilterServicesAsync(component, ServiceType.Boost, 0);
+                return;
+            case "filter_calibration":
+                await _actions.FilterServicesAsync(component, ServiceType.Calibration, 0);
+                return;
+            case "filter_lp":
+                await _actions.FilterServicesAsync(component, ServiceType.LP, 0);
+                return;
+        }
+
+        // ==========================================
+        // 5. НЕИЗВЕСТНАЯ КНОПКА
+        // ==========================================
+        await component.RespondAsync("Неизвестная кнопка.", ephemeral: true);
     }
 }
