@@ -74,11 +74,12 @@ public class OpenDotaService
         }
     }
 
-    // В файле service/OpenDotaService.cs
-
     public async Task<DotaPlayerDto?> GetPlayerInfoAsync(long accountId)
     {
-        // ... (кэш можно оставить как есть)
+        if (_playerCache.TryGetValue(accountId, out var cached) &&
+            DateTime.UtcNow - cached.CachedAt < _cacheDuration)
+            return cached.Data;
+
         try
         {
             var response = await _http.GetAsync($"players/{accountId}");
@@ -135,15 +136,12 @@ public class DotaHeroDto { public string LocalizedName { get; set; } = ""; }
 
 public class DotaPlayerDto
 {
-    public long AccountId { get; set; }
-    public string? PersonaName { get; set; }
-    public string? AvatarFull { get; set; }
+    public DotaProfileDto? Profile { get; set; }
     public int? RankTier { get; set; }
     public int? LeaderboardRank { get; set; }
+    public decimal? ComputedMmr { get; set; }
     public MmrEstimate? MmrEstimate { get; set; }
-    public DotaProfileDto? Profile { get; set; }
 }
-
 
 public class DotaProfileDto
 {

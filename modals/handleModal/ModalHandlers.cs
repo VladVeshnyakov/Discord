@@ -24,21 +24,18 @@ public class ModalHandlers
 
     public async Task HandleModalAsync(SocketModal modal)
     {
-        // Dota ID (для буста/калибровки)
         if (modal.Data.CustomId.StartsWith("modal_dota_id_"))
         {
             await ProcessDotaIdModalAsync(modal);
             return;
         }
 
-        // Количество игр LP
         if (modal.Data.CustomId.StartsWith("modal_lp_"))
         {
             await ProcessLpGamesModalAsync(modal);
             return;
         }
 
-        // Создание услуги
         switch (modal.Data.CustomId)
         {
             case "modal_create_service":
@@ -47,12 +44,8 @@ public class ModalHandlers
         }
     }
 
-    // ==========================================
-    // 1. DOTA ID (буст/калибровка)
-    // ==========================================
     private async Task ProcessDotaIdModalAsync(SocketModal modal)
     {
-        // CustomId = modal_dota_id_{serviceId}
         var parts = modal.Data.CustomId.Split('_');
         if (parts.Length != 4 || !int.TryParse(parts[3], out int serviceId))
         {
@@ -67,13 +60,16 @@ public class ModalHandlers
             return;
         }
 
-        // Валидация через OpenDota — существует ли аккаунт
         var player = await _dota.GetPlayerInfoAsync(dotaId);
         if (player?.Profile == null || string.IsNullOrEmpty(player.Profile.PersonaName))
         {
-            await modal.RespondAsync("❌ Не удалось найти аккаунт с таким ID.", ephemeral: true);
+            await modal.RespondAsync(
+                "❌ Не удалось найти аккаунт с таким ID. Проверьте номер.\n" +
+                "*Подсказка: ваш Dota ID можно узнать на [opendota.com](https://www.opendota.com).*",
+                ephemeral: true);
             return;
         }
+
         var service = await _db.GetServiceByIdAsync(serviceId);
         if (service == null)
         {
@@ -81,23 +77,21 @@ public class ModalHandlers
             return;
         }
 
-        // Создаём заказ
         var order = await _db.CreateOrderAsync(modal.User.Id, service.BoosterId, service.Id, service.Price);
         order.DotaAccountId = dotaId;
 
-        // Подтягиваем MMR и стартовые данные
-        int startMmr = player.MmrEstimate?.Estimate ?? 0;
+        int startMmr = player.MmrEstimate?.Estimate
+                       ?? (int?)(player.ComputedMmr)
+                       ?? 0;
         order.StartMmr = startMmr;
         order.CurrentMmr = startMmr;
-        order.TargetMmrDelta = service.MaxMmr - service.MinMmr; // из услуги
-        // Цель будет пересчитана при старте смены бустером
+        order.TargetMmrDelta = service.MaxMmr - service.MinMmr;
 
         await _db.UpdateOrderAsync(order);
 
-        // Генерируем счёт
         string webhookUrl = "https://lion-kotlas.ru/api/webhooks/bepusdt";
         string redirectUrl = "https://lion-kotlas.ru";
-        decimal testAmount = 1.00m; // TODO: заменить на конвертацию руб→USDT
+        decimal testAmount = 1.00m;
 
         var payUrl = await _bepusdt.CreateInvoiceAsync(
             orderId: order.Id.ToString(),
@@ -112,7 +106,6 @@ public class ModalHandlers
             return;
         }
 
-        // Красивая карточка
         string personaName = player.Profile.PersonaName;
         string rankName = DotaRankHelper.GetRankName(player.RankTier, player.LeaderboardRank);
 
@@ -129,8 +122,8 @@ public class ModalHandlers
             .WithColor(Color.Green)
             .WithFooter("Счёт действителен 15 минут");
 
-        if (!string.IsNullOrEmpty(player.AvatarFull))
-            embed.WithThumbnailUrl(player.AvatarFull);
+        if (!string.IsNullOrEmpty(player.Profile.AvatarFull))
+            embed.WithThumbnailUrl(player.Profile.AvatarFull);
 
         var builder = new ComponentBuilder()
             .WithButton("💸 Перейти к оплате", style: ButtonStyle.Link, url: payUrl);
@@ -138,12 +131,8 @@ public class ModalHandlers
         await modal.RespondAsync(embed: embed.Build(), components: builder.Build(), ephemeral: true);
     }
 
-    // ==========================================
-    // 2. КОЛИЧЕСТВО ИГР LP
-    // ==========================================
     private async Task ProcessLpGamesModalAsync(SocketModal modal)
     {
-        // CustomId = modal_lp_{serviceId}
         var parts = modal.Data.CustomId.Split('_');
         if (parts.Length != 3 || !int.TryParse(parts[2], out int serviceId))
         {
@@ -209,9 +198,6 @@ public class ModalHandlers
         await modal.RespondAsync(embed: embed.Build(), components: builder.Build(), ephemeral: true);
     }
 
-    // ==========================================
-    // 3. СОЗДАНИЕ УСЛУГИ (бустер)
-    // ==========================================
     private async Task ProcessCreateServiceAsync(SocketModal modal)
     {
         var components = modal.Data.Components.ToList();
@@ -222,14 +208,12 @@ public class ModalHandlers
         string mmrRange = components.First(x => x.CustomId == "mmr_range").Value.Trim();
         string steamLink = components.First(x => x.CustomId == "steam_link").Value.Trim();
 
-        // Парсинг цены
         if (!decimal.TryParse(priceStr, out decimal price) || price <= 0)
         {
             await modal.RespondAsync("❌ Цена должна быть положительным числом.", ephemeral: true);
             return;
         }
 
-        // Парсинг типа услуги
         ServiceType type;
         if (typeStr.Equals("Boost", StringComparison.OrdinalIgnoreCase)) type = ServiceType.Boost;
         else if (typeStr.Equals("Calibration", StringComparison.OrdinalIgnoreCase)) type = ServiceType.Calibration;
@@ -241,7 +225,6 @@ public class ModalHandlers
             return;
         }
 
-        // Парсинг MMR (только для Boost)
         int minMmr = 0, maxMmr = 0;
         if (type == ServiceType.Boost)
         {
@@ -262,14 +245,12 @@ public class ModalHandlers
             }
         }
 
-        // Валидация Steam ссылки
         if (!string.IsNullOrEmpty(steamLink) && !steamLink.StartsWith("https://steamcommunity.com/"))
         {
             await modal.RespondAsync("❌ Ссылка должна начинаться с https://steamcommunity.com/", ephemeral: true);
             return;
         }
 
-        // Создаём услугу
         var service = new ServiceItem
         {
             Name = name,

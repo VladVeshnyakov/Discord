@@ -153,9 +153,9 @@ public class OrderChannelService
             embed.AddField("📋 Матчи", "*Пока нет сыгранных матчей*", false);
         }
 
-        if (player != null)
+        if (player?.Profile != null)
         {
-            string accountInfo = $"**Никнейм:** {player.PersonaName ?? "скрыт"}\n" +
+            string accountInfo = $"**Никнейм:** {player.Profile.PersonaName ?? "скрыт"}\n" +
                                  $"**Ранг:** {DotaRankHelper.GetRankName(player.RankTier, player.LeaderboardRank)}\n";
             if (wl != null && wl.Win + wl.Lose > 0)
             {
@@ -167,8 +167,8 @@ public class OrderChannelService
         }
 
         embed.WithFooter($"Создан: {order.CreatedAt:dd.MM.yyyy HH:mm} UTC");
-        if (!string.IsNullOrEmpty(player?.AvatarFull))
-            embed.WithThumbnailUrl(player.AvatarFull);
+        if (!string.IsNullOrEmpty(player?.Profile?.AvatarFull))
+            embed.WithThumbnailUrl(player.Profile.AvatarFull);
 
         return embed.Build();
     }
@@ -187,12 +187,15 @@ public class OrderChannelService
             .AddField("Цена", $"{order.Price} ₽", true)
             .AddField("К выплате", $"{order.BoosterTotalPayout:F2} ₽", true);
 
-        if (player != null)
+        if (player?.Profile != null)
         {
-            string profile = $"**Никнейм:** {player.PersonaName ?? "скрыт"}\n" +
+            string profile = $"**Никнейм:** {player.Profile.PersonaName ?? "скрыт"}\n" +
                              $"**Ранг:** {DotaRankHelper.GetRankName(player.RankTier, player.LeaderboardRank)}\n";
-            if (player.MmrEstimate?.Estimate != null)
-                profile += $"**MMR:** ~{player.MmrEstimate.Estimate}\n";
+
+            int? mmr = player.MmrEstimate?.Estimate ?? (int?)(player.ComputedMmr);
+            if (mmr != null)
+                profile += $"**MMR:** ~{mmr}\n";
+
             if (wl != null && wl.Win + wl.Lose > 0)
             {
                 int total = wl.Win + wl.Lose;
@@ -228,8 +231,8 @@ public class OrderChannelService
         }
 
         embed.WithFooter($"Клиент: {order.ClientId} | Создан: {order.CreatedAt:dd.MM.yyyy HH:mm} UTC");
-        if (!string.IsNullOrEmpty(player?.AvatarFull))
-            embed.WithThumbnailUrl(player.AvatarFull);
+        if (!string.IsNullOrEmpty(player?.Profile?.AvatarFull))
+            embed.WithThumbnailUrl(player.Profile.AvatarFull);
 
         return embed.Build();
     }
