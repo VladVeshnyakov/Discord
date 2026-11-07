@@ -69,15 +69,11 @@ public class ModalHandlers
 
         // Валидация через OpenDota — существует ли аккаунт
         var player = await _dota.GetPlayerInfoAsync(dotaId);
-        if (player == null || string.IsNullOrEmpty(player.PersonaName))
+        if (player?.Profile == null || string.IsNullOrEmpty(player.Profile.PersonaName))
         {
-            await modal.RespondAsync(
-                "❌ Не удалось найти аккаунт с таким ID. Проверьте номер.\n" +
-                "*Подсказка: ваш Dota ID можно узнать на [opendota.com](https://www.opendota.com) или через сайт Stratz.*",
-                ephemeral: true);
+            await modal.RespondAsync("❌ Не удалось найти аккаунт с таким ID.", ephemeral: true);
             return;
         }
-
         var service = await _db.GetServiceByIdAsync(serviceId);
         if (service == null)
         {
@@ -117,7 +113,7 @@ public class ModalHandlers
         }
 
         // Красивая карточка
-        string personaName = player.PersonaName ?? "скрыт";
+        string personaName = player.Profile.PersonaName;
         string rankName = DotaRankHelper.GetRankName(player.RankTier, player.LeaderboardRank);
 
         var embed = new EmbedBuilder()

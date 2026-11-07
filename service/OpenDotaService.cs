@@ -74,12 +74,11 @@ public class OpenDotaService
         }
     }
 
+    // В файле service/OpenDotaService.cs
+
     public async Task<DotaPlayerDto?> GetPlayerInfoAsync(long accountId)
     {
-        if (_playerCache.TryGetValue(accountId, out var cached) &&
-            DateTime.UtcNow - cached.CachedAt < _cacheDuration)
-            return cached.Data;
-
+        // ... (кэш можно оставить как есть)
         try
         {
             var response = await _http.GetAsync($"players/{accountId}");
@@ -87,7 +86,7 @@ public class OpenDotaService
             var content = await response.Content.ReadAsStringAsync();
             var player = JsonSerializer.Deserialize<DotaPlayerDto>(content,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            if (player != null) _playerCache[accountId] = (player, DateTime.UtcNow);
+            if (player?.Profile != null) _playerCache[accountId] = (player, DateTime.UtcNow);
             return player;
         }
         catch (Exception ex)
@@ -142,6 +141,15 @@ public class DotaPlayerDto
     public int? RankTier { get; set; }
     public int? LeaderboardRank { get; set; }
     public MmrEstimate? MmrEstimate { get; set; }
+    public DotaProfileDto? Profile { get; set; }
+}
+
+
+public class DotaProfileDto
+{
+    public long AccountId { get; set; }
+    public string? PersonaName { get; set; }
+    public string? AvatarFull { get; set; }
 }
 
 public class MmrEstimate { public int? Estimate { get; set; } }
