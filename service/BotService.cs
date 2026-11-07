@@ -51,9 +51,12 @@ public class BotService
         _client.ModalSubmitted += async modal => 
         {
             using var scope = _services.CreateScope();
+    
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
-            var modalHandlers = new ModalHandlers(db, bepusdt);
+            var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
+    
+            var modalHandlers = new ModalHandlers(db, bepusdt, dota);
             await modalHandlers.HandleModalAsync(modal);
         };
     }

@@ -74,6 +74,10 @@ namespace DiscordBirge.Migrations
                     b.Property<long?>("LastProcessedMatchId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("MatchesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<int>("OwnerGamesPlayed")
                         .HasColumnType("integer");
 

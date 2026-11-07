@@ -258,7 +258,7 @@ public class UserActions
     {
         if (!_userSelections.TryGetValue(component.User.Id, out int serviceId))
         {
-            await component.RespondAsync("❌ Ошибка: Вы не выбрали услугу. Сначала выберите её в меню!", ephemeral: true);
+            await component.RespondAsync("❌ Сначала выберите услугу в меню.", ephemeral: true);
             return;
         }
 
@@ -269,50 +269,36 @@ public class UserActions
             return;
         }
 
-        // Если это LP - открываем модалку для ввода количества игр
-        if (service.Type == ServiceType.LP)
+        // Для Boost и Calibration — спрашиваем Dota ID
+        if (service.Type == ServiceType.Boost || service.Type == ServiceType.Calibration)
         {
             var modal = new ModalBuilder()
-                .WithTitle("Сколько игр LP отыграть?")
-                .WithCustomId($"modal_lp_{serviceId}")
-                .AddTextInput("Количество игр", "games_count", placeholder: "Например: 5", minLength: 1, maxLength: 2);
-            
+                .WithTitle("Ваш Dota 2 Account ID")
+                .WithCustomId($"modal_dota_id_{service.Id}")
+                .AddTextInput("Dota Account ID", "dota_id",
+                    placeholder: "Например: 12345678",
+                    minLength: 5, maxLength: 12);
+
             await component.RespondWithModalAsync(modal.Build());
             return;
         }
 
-        // Для остальных услуг - стандартная оплата
-        await component.DeferAsync(ephemeral: true);
-
-        var order = await _db.CreateOrderAsync(component.User.Id, service.BoosterId, service.Id, service.Price);
-
-        string webhookUrl = "https://lion-kotlas.ru/api/webhooks/bepusdt"; 
-        string redirectUrl = "https://lion-kotlas.ru";
-        decimal testAmount = 1.00m; 
-        
-        var payUrl = await _bepusdt.CreateInvoiceAsync(
-            orderId: order.Id.ToString(),
-            amount: testAmount,
-            orderDesc: service.Name,
-            webhookUrl: webhookUrl,
-            redirectUrl: redirectUrl
-        );
-
-        if (payUrl == null)
+        // Для LP — спрашиваем количество игр
+        if (service.Type == ServiceType.LP)
         {
-            await component.FollowupAsync("❌ Ошибка при создании счета на оплату.", ephemeral: true);
+            var modal = new ModalBuilder()
+                .WithTitle("Сколько игр LP отыграть?")
+                .WithCustomId($"modal_lp_{service.Id}")
+                .AddTextInput("Количество игр", "games_count",
+                    placeholder: "Например: 5", minLength: 1, maxLength: 2);
+
+            await component.RespondWithModalAsync(modal.Build());
             return;
         }
 
-        var embed = new EmbedBuilder()
-            .WithTitle("💳 Счет на оплату создан")
-            .WithDescription($"**Услуга:** {service.Name}\n**Сумма:** {service.Price} ₽\n\n[💸 Перейти к оплате]({payUrl})")
-            .WithColor(Color.Green)
-            .Build();
-
-        await component.FollowupAsync(embed: embed, ephemeral: true);
+        // Для Behavior — пока заглушка
+        await component.RespondAsync("⚠️ Для этой услуги покупка пока не автоматизирована. Напишите в поддержку.", ephemeral: true);
     }
-
     // ==========================================
     // КАБИНЕТ БУСТЕРА
     // ==========================================

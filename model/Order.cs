@@ -43,6 +43,9 @@ public class Order
     public bool IsShiftActive { get; set; } = false; 
     public DateTime? ShiftStartedAt { get; set; }
     public long? LastProcessedMatchId { get; set; } 
+    
+    
+    public string MatchesJson { get; set; } = "[]";
 
     // --- ВЕТКИ DISCORD ---
     public ulong? ClientThreadId { get; set; }

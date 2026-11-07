@@ -34,11 +34,32 @@ public class BepusdtWebhookController : ControllerBase
         _guildId = ulong.Parse(config["Discord:GuildId"]!);
         _clientRoleId = ulong.Parse(config["Discord:ClientRoleId"]!);
     }
-
     [HttpPost]
-    public async Task<IActionResult> HandleWebhook([FromForm] BepusdtNotify notify)
+    public async Task<IActionResult> HandleWebhook()
     {
-        if (!ValidateSignature(notify))
+        BepusdtNotify? notify = null;
+
+        if (Request.ContentType?.Contains("application/json") == true)
+        {
+            notify = await Request.ReadFromJsonAsync<BepusdtNotify>();
+        }
+        else
+        {
+            var form = await Request.ReadFormAsync();
+            notify = new BepusdtNotify
+            {
+                trade_id = form["trade_id"].ToString(),
+                order_id = form["order_id"].ToString(),
+                amount = form["amount"].ToString(),
+                actual_amount = form["actual_amount"].ToString(),
+                token = form["token"].ToString(),
+                block_transaction_id = form["block_transaction_id"].ToString(),
+                signature = form["signature"].ToString(),
+                status = int.TryParse(form["status"], out var s) ? s : 0
+            };
+        }
+
+        if (notify == null || !ValidateSignature(notify))
         {
             Console.WriteLine("[BEPUSDT WEBHOOK] Invalid signature");
             return Unauthorized();
@@ -59,8 +80,7 @@ public class BepusdtWebhookController : ControllerBase
                     var role = guild.GetRole(_clientRoleId);
                     if (role != null) await user.AddRoleAsync(role);
                 }
-
-                // Создаем две ветки (клиент + бустер)
+                
                 await _orderChannels.CreateOrderThreadsAsync(order);
             }
         }
