@@ -77,7 +77,7 @@ public class BotService
     {
         Console.WriteLine($"Бот {_client.CurrentUser.Username} подключен!");
         
-        ulong channelId = 1565445743379095653; 
+        ulong channelId = 1568654498723930284; 
         var channel = _client.GetChannel(channelId) as IMessageChannel;
 
         if (channel != null)

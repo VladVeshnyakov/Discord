@@ -28,6 +28,6 @@ services:
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=birge_db;Username=postgres;Password=${DB_PASSWORD}
       - Epusdt__ApiToken=${EPUSDT_API_TOKEN}
       - Epusdt__ApiUrl=http://94.183.190.169:8080
-
+      - Discord__OrdersChannelId=${DISCORD_ORDERS_CHANNEL_ID}
 volumes:
   postgres_data:
