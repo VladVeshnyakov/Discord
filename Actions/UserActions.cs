@@ -3,6 +3,7 @@ using Discord.WebSocket;
 using DiscordBirge.Data;
 using DiscordBirge.Models;
 using DiscordBirge.Services;
+using DiscordBirge.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -66,11 +67,11 @@ public class UserActions
                     .WithButton("Услуги", "menu_services", ButtonStyle.Primary);
 
                 await thread.SendMessageAsync(embed: embed, components: builder.Build());
-                await component.FollowupAsync($"Ветка создана! Переходите в неё: {thread.Mention}", ephemeral: true);
+                await component.UpdateResponseAsync($"Ветка создана! Переходите в неё: {thread.Mention}");
             }
             catch (Exception ex)
             {
-                await component.FollowupAsync($"Ошибка: {ex.Message}", ephemeral: true);
+                await component.UpdateResponseAsync($"Ошибка: {ex.Message}");
             }
         }
     }
@@ -97,7 +98,7 @@ public class UserActions
             .WithDescription("Здесь будет ваша история заказов. (В разработке)")
             .WithColor(Color.DarkGrey)
             .Build();
-            
+
         var builder = new ComponentBuilder().WithButton("⬅ Назад", "menu_back", ButtonStyle.Danger);
         await component.UpdateAsync(m => { m.Embed = embed; m.Components = builder.Build(); });
     }
@@ -154,7 +155,7 @@ public class UserActions
             foreach (var service in pageItems)
             {
                 string priceLabel = service.Type == ServiceType.LP ? $"{service.Price} ₽ / игра" : $"{service.Price} ₽";
-                string description = 
+                string description =
                     $"**Бустер:** <@{service.BoosterId}>\n" +
                     (service.Type == ServiceType.Boost ? $"**MMR:** {service.MinMmr} - {service.MaxMmr}\n" : "") +
                     $"**Цена:** {priceLabel}\n" +
@@ -165,7 +166,7 @@ public class UserActions
         }
 
         var builder = new ComponentBuilder();
-        
+
         if (pageItems.Count > 0)
         {
             var menu = new SelectMenuBuilder()
@@ -192,7 +193,7 @@ public class UserActions
         builder.WithButton("◀ Назад", $"page_{filterStr}_{page - 1}", ButtonStyle.Secondary, row: 2, disabled: page <= 0)
                .WithButton("Вперед ▶", $"page_{filterStr}_{page + 1}", ButtonStyle.Secondary, row: 2, disabled: page >= totalPages - 1);
 
-        await component.Message.ModifyAsync(m => { m.Embed = embed.Build(); m.Components = builder.Build(); });
+        await component.UpdateResponseAsync(embed: embed.Build(), components: builder.Build());
     }
 
     // ==========================================
@@ -203,14 +204,14 @@ public class UserActions
     {
         if (!_userSelections.TryGetValue(component.User.Id, out int serviceId))
         {
-            await component.RespondAsync("❌ Сначала выберите услугу в меню.", ephemeral: true);
+            await component.SafeUpdateAsync("❌ Сначала выберите услугу в меню.");
             return;
         }
 
         var service = await _db.GetServiceByIdAsync(serviceId);
         if (service == null)
         {
-            await component.RespondAsync("❌ Услуга не найдена.", ephemeral: true);
+            await component.SafeUpdateAsync("❌ Услуга не найдена.");
             return;
         }
 
@@ -242,7 +243,7 @@ public class UserActions
         }
 
         // 3. Behavior -> Пока вручную
-        await component.RespondAsync("⚠️ Для этой услуги покупка пока не автоматизирована.", ephemeral: true);
+        await component.SafeUpdateAsync("⚠️ Для этой услуги покупка пока не автоматизирована.");
     }
 
     // ==========================================
@@ -254,10 +255,10 @@ public class UserActions
         await component.DeferAsync();
 
         var orders = await _db.GetBoosterActiveOrdersAsync(component.User.Id);
-        
+
         if (orders.Count == 0)
         {
-            await component.FollowupAsync("📦 У вас нет активных заказов в работе.", ephemeral: true);
+            await component.UpdateResponseAsync("📦 У вас нет активных заказов в работе.");
             return;
         }
 
@@ -269,10 +270,10 @@ public class UserActions
         var builder = new ComponentBuilder();
         int row = 0;
 
-        foreach (var order in orders.Take(4)) 
+        foreach (var order in orders.Take(4))
         {
             string shiftStatus = order.IsShiftActive ? "🟢 Смена активна" : "🔴 Смена не начата";
-            
+
             string progressText = "";
             if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
                 progressText = $"**MMR:** {order.CurrentMmr} / {order.TargetMmr} (дельта +{order.TargetMmrDelta})";
@@ -298,60 +299,60 @@ public class UserActions
         }
 
         builder.WithButton("⬅ Назад", "menu_services", ButtonStyle.Secondary, row: row);
-        await component.Message.ModifyAsync(m => { m.Embed = embed.Build(); m.Components = builder.Build(); });
+        await component.UpdateResponseAsync(embed: embed.Build(), components: builder.Build());
     }
 
     public async Task StartShiftAsync(SocketMessageComponent component, int orderId)
     {
         await component.DeferAsync(ephemeral: true);
         var order = await _db.GetOrderByIdAsync(orderId);
-        
+
         if (order == null || order.BoosterId != component.User.Id)
         {
-            await component.FollowupAsync("❌ Заказ не найден или он не ваш.", ephemeral: true);
+            await component.UpdateResponseAsync("❌ Заказ не найден или он не ваш.");
             return;
         }
 
         if (order.IsShiftActive)
         {
-            await component.FollowupAsync("⚠️ Смена уже активна.", ephemeral: true);
+            await component.UpdateResponseAsync("⚠️ Смена уже активна.");
             return;
         }
 
         order.IsShiftActive = true;
         order.ShiftStartedAt = DateTime.UtcNow;
-        
+
         if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
             order.TargetMmr = order.CurrentMmr + order.TargetMmrDelta;
-        
+
         await _db.UpdateOrderAsync(order);
         await _orderChannels.UpdateThreadsProgressAsync(order);
-        
-        await component.FollowupAsync("✅ Смена начата.", ephemeral: true);
+
+        await component.UpdateResponseAsync("✅ Смена начата.");
     }
 
     public async Task EndShiftAsync(SocketMessageComponent component, int orderId)
     {
         await component.DeferAsync(ephemeral: true);
         var order = await _db.GetOrderByIdAsync(orderId);
-        
+
         if (order == null || order.BoosterId != component.User.Id)
         {
-            await component.FollowupAsync("❌ Заказ не найден.", ephemeral: true);
+            await component.UpdateResponseAsync("❌ Заказ не найден.");
             return;
         }
 
         if (!order.IsShiftActive)
         {
-            await component.FollowupAsync("⚠️ Смена и так не активна.", ephemeral: true);
+            await component.UpdateResponseAsync("⚠️ Смена и так не активна.");
             return;
         }
 
         order.IsShiftActive = false;
         await _db.UpdateOrderAsync(order);
         await _orderChannels.UpdateThreadsProgressAsync(order);
-        
-        await component.FollowupAsync("🛑 Смена завершена.", ephemeral: true);
+
+        await component.UpdateResponseAsync("🛑 Смена завершена.");
     }
 
     // ==========================================

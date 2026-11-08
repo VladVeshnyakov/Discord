@@ -2,6 +2,7 @@ using Discord.WebSocket;
 using System.Threading.Tasks;
 using DiscordBirge.Actions;
 using DiscordBirge.Models;
+using DiscordBirge.Helpers;
 using System.Linq;
 
 namespace DiscordBirge.Handlers;
@@ -25,16 +26,16 @@ public class ButtonHandlers
             if (int.TryParse(selected, out int serviceId))
             {
                 _actions.SaveUserSelection(component.User.Id, serviceId);
-                await component.FollowupAsync("✅ Услуга выбрана! Теперь нажмите «Купить».", ephemeral: true);
+                await component.UpdateResponseAsync("✅ Услуга выбрана! Теперь нажмите «Купить».");
             }
             else
             {
-                await component.FollowupAsync("❌ Ошибка при выборе услуги.", ephemeral: true);
+                await component.UpdateResponseAsync("❌ Ошибка при выборе услуги.");
             }
         }
         else
         {
-            await component.FollowupAsync("Выбор принят.", ephemeral: true);
+            await component.UpdateResponseAsync("Выбор принят.");
         }
     }
 
@@ -42,9 +43,7 @@ public class ButtonHandlers
     {
         var id = component.Data.CustomId;
 
-        // ==========================================
-        // 1. ДИНАМИЧЕСКИЕ КНОПКИ (пагинация, смены)
-        // ==========================================
+        // Динамические кнопки
         if (id.StartsWith("page_"))
         {
             var parts = id.Split('_');
@@ -80,9 +79,7 @@ public class ButtonHandlers
             }
         }
 
-        // ==========================================
-        // 2. КЛИЕНТСКИЕ КНОПКИ
-        // ==========================================
+        // Клиентские кнопки
         switch (id)
         {
             case "buy_service_btn":
@@ -93,9 +90,7 @@ public class ButtonHandlers
                 return;
         }
 
-        // ==========================================
-        // 3. КНОПКИ БУСТЕРА (ТРЕНЕРА)
-        // ==========================================
+        // Бустерские кнопки
         switch (id)
         {
             case "services_my":
@@ -106,9 +101,7 @@ public class ButtonHandlers
                 return;
         }
 
-        // ==========================================
-        // 4. ОБЩИЕ КНОПКИ (навигация, фильтры)
-        // ==========================================
+        // Общие кнопки
         switch (id)
         {
             case "create_ticket":
@@ -123,7 +116,7 @@ public class ButtonHandlers
             case "menu_back":
                 await _actions.ShowMainMenuAsync(component);
                 return;
-            
+
             case "filter_all":
                 await _actions.FilterServicesAsync(component, null, 0);
                 return;
@@ -138,9 +131,7 @@ public class ButtonHandlers
                 return;
         }
 
-        // ==========================================
-        // 5. НЕИЗВЕСТНАЯ КНОПКА
-        // ==========================================
-        await component.RespondAsync("Неизвестная кнопка.", ephemeral: true);
+        // Неизвестная кнопка
+        await component.SafeUpdateAsync("Неизвестная кнопка.");
     }
 }
