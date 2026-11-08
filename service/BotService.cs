@@ -8,7 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Threading.Tasks;
 using DiscordBirge.Services;
-
+using System.Linq;
+using Discord.Rest; // или Discord.WebSocket, если нужно
 namespace DiscordBirge;
 
 public class BotService
@@ -76,23 +77,51 @@ public class BotService
     private async Task ReadyAsync()
     {
         Console.WriteLine($"Бот {_client.CurrentUser.Username} подключен!");
-        
+    
         ulong channelId = 1568654498723930284; 
         var channel = _client.GetChannel(channelId) as IMessageChannel;
 
-        if (channel != null)
+        if (channel == null)
         {
-            var embed = new EmbedBuilder()
-                .WithTitle("💼 Биржевик")
-                .WithDescription("Нажмите кнопку ниже, чтобы открыть личный кабинет.")
-                .WithColor(Color.Blue)
-                .Build();
+            Console.WriteLine("ОШИБКА: Канал не найден.");
+            return;
+        }
 
-            var builder = new ComponentBuilder()
-                .WithButton("Создать личный кабинет", "create_ticket", ButtonStyle.Primary);
+        // Берем последние 10 сообщений и ищем среди них сообщение от нашего бота
+        var messages = await channel.GetMessagesAsync(10).FlattenAsync();
+        var botMessage = messages.FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id) as IUserMessage;
 
+        var embed = new EmbedBuilder()
+            .WithTitle("💼 Биржевик")
+            .WithDescription("Нажмите кнопку ниже, чтобы открыть личный кабинет.")
+            .WithColor(Color.Blue)
+            .Build();
+
+        var builder = new ComponentBuilder()
+            .WithButton("Создать личный кабинет", "create_ticket", ButtonStyle.Primary);
+
+        if (botMessage != null)
+        {
+            try
+            {
+                // Если нашли сообщение бота — просто обновляем его (спама не будет)
+                await botMessage.ModifyAsync(m =>
+                {
+                    m.Embed = embed;
+                    m.Components = builder.Build();
+                });
+                Console.WriteLine("Главное меню обновлено (существующее сообщение).");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка обновления сообщения: {ex.Message}");
+            }
+        }
+        else
+        {
+            // Если сообщений бота нет (или они удалены) — создаем новое
             await channel.SendMessageAsync(embed: embed, components: builder.Build());
-            Console.WriteLine("Главное меню отправлено в канал.");
+            Console.WriteLine("Главное меню отправлено в канал (новое сообщение).");
         }
     }
 }

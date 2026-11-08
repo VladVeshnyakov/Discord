@@ -42,37 +42,48 @@ public class UserActions
         var textChannel = component.Channel as ITextChannel;
         var guildUser = component.User as IGuildUser;
 
-        if (textChannel != null && guildUser != null)
+        if (textChannel == null || guildUser == null) return;
+
+        // Проверяем, есть ли уже ветка с именем пользователя
+        var existingThreads = await textChannel.GetActiveThreadsAsync();
+        var existingThread = existingThreads.FirstOrDefault(t => 
+            t.Name == $"Личный-{guildUser.Username}" && 
+            t.Type == ThreadType.PrivateThread);
+
+        if (existingThread != null)
         {
-            try
-            {
-                var thread = await textChannel.CreateThreadAsync(
-                    name: $"Личный-{guildUser.Username}",
-                    type: ThreadType.PrivateThread,
-                    autoArchiveDuration: ThreadArchiveDuration.OneDay,
-                    invitable: false
-                );
+            await component.FollowupAsync($"У вас уже есть личный кабинет: {existingThread.Mention}", ephemeral: true);
+            return;
+        }
 
-                await thread.AddUserAsync(guildUser);
-                await thread.JoinAsync();
+        try
+        {
+            var thread = await textChannel.CreateThreadAsync(
+                name: $"Личный-{guildUser.Username}",
+                type: ThreadType.PrivateThread,
+                autoArchiveDuration: ThreadArchiveDuration.OneDay,
+                invitable: false
+            );
 
-                var embed = new EmbedBuilder()
-                    .WithTitle("💼 Биржевик - Ваш личный кабинет")
-                    .WithDescription("Выберите раздел:")
-                    .WithColor(Color.Blue)
-                    .Build();
+            await thread.AddUserAsync(guildUser);
+            await thread.JoinAsync();
 
-                var builder = new ComponentBuilder()
-                    .WithButton("История", "menu_history", ButtonStyle.Secondary)
-                    .WithButton("Услуги", "menu_services", ButtonStyle.Primary);
+            var embed = new EmbedBuilder()
+                .WithTitle("💼 Биржевик - Ваш личный кабинет")
+                .WithDescription("Выберите раздел:")
+                .WithColor(Color.Blue)
+                .Build();
 
-                await thread.SendMessageAsync(embed: embed, components: builder.Build());
-                await component.UpdateResponseAsync($"Ветка создана! Переходите в неё: {thread.Mention}");
-            }
-            catch (Exception ex)
-            {
-                await component.UpdateResponseAsync($"Ошибка: {ex.Message}");
-            }
+            var builder = new ComponentBuilder()
+                .WithButton("История", "menu_history", ButtonStyle.Secondary)
+                .WithButton("Услуги", "menu_services", ButtonStyle.Primary);
+
+            await thread.SendMessageAsync(embed: embed, components: builder.Build());
+            await component.FollowupAsync($"Ветка создана! Переходите в неё: {thread.Mention}", ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            await component.FollowupAsync($"Ошибка: {ex.Message}", ephemeral: true);
         }
     }
 

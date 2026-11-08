@@ -18,24 +18,39 @@ public class ButtonHandlers
 
     public async Task HandleSelectMenuAsync(SocketMessageComponent component)
     {
-        await component.DeferAsync(ephemeral: true);
-
         if (component.Data.CustomId == "select_service_to_buy")
         {
             var selected = component.Data.Values.FirstOrDefault();
             if (int.TryParse(selected, out int serviceId))
             {
                 _actions.SaveUserSelection(component.User.Id, serviceId);
-                await component.UpdateResponseAsync("✅ Услуга выбрана! Теперь нажмите «Купить».");
+            
+                // Обновляем исходное сообщение, чтобы подтвердить взаимодействие
+                // (фактически ничего не меняем, но Discord получает ответ и не ругается)
+                try
+                {
+                    await component.UpdateAsync(m => { });
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SELECT MENU UPDATE ERROR] {ex.Message}");
+                }
             }
             else
             {
-                await component.UpdateResponseAsync("❌ Ошибка при выборе услуги.");
+                await component.RespondAsync("❌ Ошибка при выборе услуги.", ephemeral: true);
             }
         }
         else
         {
-            await component.UpdateResponseAsync("Выбор принят.");
+            try
+            {
+                await component.UpdateAsync(m => { });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SELECT MENU UPDATE ERROR] {ex.Message}");
+            }
         }
     }
 
