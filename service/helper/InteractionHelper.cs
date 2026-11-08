@@ -1,5 +1,6 @@
 using Discord;
 using Discord.WebSocket;
+using System;
 using System.Threading.Tasks;
 
 namespace DiscordBirge.Helpers;
@@ -16,17 +17,29 @@ public static class InteractionHelper
         MessageComponent? components = null,
         bool ephemeral = true)
     {
-        if (!interaction.HasResponded)
-        {
-            await interaction.DeferAsync(ephemeral);
-        }
+        Console.WriteLine($"[HELPER SafeUpdateAsync] Start. HasResponded={interaction.HasResponded}, CustomId={(interaction as SocketMessageComponent)?.Data.CustomId ?? "n/a"}");
 
-        await interaction.ModifyOriginalResponseAsync(msg =>
+        try
         {
-            msg.Content = text;
-            msg.Embed = embed;
-            msg.Components = components;
-        });
+            if (!interaction.HasResponded)
+            {
+                Console.WriteLine($"[HELPER SafeUpdateAsync] DeferAsync (ephemeral={ephemeral})");
+                await interaction.DeferAsync(ephemeral);
+            }
+
+            Console.WriteLine($"[HELPER SafeUpdateAsync] ModifyOriginalResponseAsync. text='{text ?? "<null>"}', embed={(embed != null ? "yes" : "no")}, components={(components != null ? "yes" : "no")}");
+            await interaction.ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Content = text;
+                msg.Embed = embed;
+                msg.Components = components;
+            });
+            Console.WriteLine("[HELPER SafeUpdateAsync] Done.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[HELPER SafeUpdateAsync] ERROR: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -34,6 +47,7 @@ public static class InteractionHelper
     /// </summary>
     public static async Task ShowLoadingAsync(this SocketInteraction interaction, string loadingEmoji = "Жду действия")
     {
+        Console.WriteLine($"[HELPER ShowLoadingAsync] Setting loading text: {loadingEmoji}");
         await interaction.SafeUpdateAsync(loadingEmoji, ephemeral: true);
     }
 
@@ -46,11 +60,21 @@ public static class InteractionHelper
         Embed? embed = null,
         MessageComponent? components = null)
     {
-        await interaction.ModifyOriginalResponseAsync(msg =>
+        Console.WriteLine($"[HELPER UpdateResponseAsync] Start. CustomId={(interaction as SocketMessageComponent)?.Data.CustomId ?? "n/a"}");
+
+        try
         {
-            msg.Content = text;
-            msg.Embed = embed;
-            msg.Components = components;
-        });
+            await interaction.ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Content = text;
+                msg.Embed = embed;
+                msg.Components = components;
+            });
+            Console.WriteLine("[HELPER UpdateResponseAsync] Done.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[HELPER UpdateResponseAsync] ERROR: {ex.Message}");
+        }
     }
 }
