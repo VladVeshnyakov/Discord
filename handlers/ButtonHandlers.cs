@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using DiscordBirge.Actions;
+using DiscordBirge.Helpers;
 using DiscordBirge.Models;
 
 namespace DiscordBirge.Handlers;
@@ -10,10 +11,12 @@ namespace DiscordBirge.Handlers;
 public class ButtonHandlers
 {
     private readonly UserActions _actions;
+    private readonly InfoMessageService _info;
 
-    public ButtonHandlers(UserActions actions)
+    public ButtonHandlers(UserActions actions, InfoMessageService info)
     {
         _actions = actions;
+        _info = info;
     }
 
     public async Task HandleSelectMenuAsync(SocketMessageComponent component)
@@ -24,15 +27,20 @@ public class ButtonHandlers
             {
                 var selected = component.Data.Values.FirstOrDefault();
                 if (int.TryParse(selected, out int serviceId))
+                {
                     _actions.SaveUserSelection(component.User.Id, serviceId);
+
+                    // Находим название для красивого сообщения (необязательно)
+                    await _info.ShowAsync(component.Channel, $"✅ Услуга #{serviceId} выбрана. Нажмите «Купить выбранное».");
+                }
             }
 
-            // Просто подтверждаем взаимодействие, не создавая сообщений
+            // Обновляем сообщение с меню, чтобы подтвердить взаимодействие
             await component.UpdateAsync(m => { });
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SELECT MENU] {ex.Message}");
+            Console.WriteLine($"[SELECT MENU ERROR] {ex.Message}");
         }
     }
 

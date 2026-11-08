@@ -36,7 +36,7 @@ public class BotService
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
             var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
             var actions = new UserActions(db, bepusdt, orderChannels, info);
-            var handlers = new ButtonHandlers(actions);
+            var handlers = new ButtonHandlers(actions, info);
             await handlers.HandleButtonAsync(component);
         };
 
@@ -48,7 +48,7 @@ public class BotService
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
             var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
             var actions = new UserActions(db, bepusdt, orderChannels, info);
-            var handlers = new ButtonHandlers(actions);
+            var handlers = new ButtonHandlers(actions, info);
             await handlers.HandleSelectMenuAsync(component);
         };
 
@@ -81,20 +81,16 @@ public class BotService
 
         ulong channelId = 1568654498723930284;
         var channel = _client.GetChannel(channelId) as IMessageChannel;
-        if (channel == null)
-        {
-            Console.WriteLine("❌ Канал не найден.");
-            return;
-        }
+        if (channel == null) return;
 
-        // Ищем сообщение бота с кнопкой create_ticket
         var messages = await channel.GetMessagesAsync(50).FlattenAsync();
         var botMessage = messages
             .OfType<IUserMessage>()
             .FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id &&
                                  m.Components != null &&
-                                 m.Components.OfType<ActionRowComponent>()
-                                     .SelectMany(row => row.Components)
+                                 m.Components
+                                     .OfType<ActionRowComponent>()
+                                     .SelectMany(r => r.Components)
                                      .OfType<ButtonComponent>()
                                      .Any(b => b.CustomId == "create_ticket"));
 
@@ -114,12 +110,12 @@ public class BotService
                 m.Embed = embed;
                 m.Components = builder.Build();
             });
-            Console.WriteLine("[READY] Существующее меню обновлено.");
+            Console.WriteLine("[READY] Меню обновлено.");
         }
         else
         {
             await channel.SendMessageAsync(embed: embed, components: builder.Build());
-            Console.WriteLine("[READY] Отправлено новое меню.");
+            Console.WriteLine("[READY] Меню отправлено.");
         }
     }
 }
