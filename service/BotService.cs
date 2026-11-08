@@ -3,13 +3,14 @@ using Discord.WebSocket;
 using DiscordBirge.Handlers;
 using DiscordBirge.Actions;
 using DiscordBirge.Data;
+using DiscordBirge.Helpers;
+using DiscordBirge.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
-using System.Threading.Tasks;
-using DiscordBirge.Services;
 using System.Linq;
-using Discord.Rest; // или Discord.WebSocket, если нужно
+using System.Threading.Tasks;
+
 namespace DiscordBirge;
 
 public class BotService
@@ -26,37 +27,37 @@ public class BotService
 
         _client.Log += LogAsync;
         _client.Ready += ReadyAsync;
-        
-        _client.ButtonExecuted += async component => 
+
+        _client.ButtonExecuted += async component =>
         {
             using var scope = _services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
-            var actions = new UserActions(db, bepusdt, orderChannels);
+            var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
+            var actions = new UserActions(db, bepusdt, orderChannels, info);
             var handlers = new ButtonHandlers(actions);
             await handlers.HandleButtonAsync(component);
         };
-        
+
         _client.SelectMenuExecuted += async component =>
         {
             using var scope = _services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
-            var actions = new UserActions(db, bepusdt, orderChannels);
+            var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
+            var actions = new UserActions(db, bepusdt, orderChannels, info);
             var handlers = new ButtonHandlers(actions);
             await handlers.HandleSelectMenuAsync(component);
         };
 
-        _client.ModalSubmitted += async modal => 
+        _client.ModalSubmitted += async modal =>
         {
             using var scope = _services.CreateScope();
-    
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
-    
             var modalHandlers = new ModalHandlers(db, bepusdt, dota);
             await modalHandlers.HandleModalAsync(modal);
         };
@@ -77,19 +78,25 @@ public class BotService
     private async Task ReadyAsync()
     {
         Console.WriteLine($"Бот {_client.CurrentUser.Username} подключен!");
-    
-        ulong channelId = 1568654498723930284; 
-        var channel = _client.GetChannel(channelId) as IMessageChannel;
 
+        ulong channelId = 1568654498723930284;
+        var channel = _client.GetChannel(channelId) as IMessageChannel;
         if (channel == null)
         {
-            Console.WriteLine("ОШИБКА: Канал не найден.");
+            Console.WriteLine("❌ Канал не найден.");
             return;
         }
 
-        // Берем последние 10 сообщений и ищем среди них сообщение от нашего бота
-        var messages = await channel.GetMessagesAsync(10).FlattenAsync();
-        var botMessage = messages.FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id) as IUserMessage;
+        // Ищем сообщение бота с кнопкой create_ticket
+        var messages = await channel.GetMessagesAsync(50).FlattenAsync();
+        var botMessage = messages
+            .OfType<IUserMessage>()
+            .FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id &&
+                                 m.Components != null &&
+                                 m.Components.OfType<ActionRowComponent>()
+                                     .SelectMany(row => row.Components)
+                                     .OfType<ButtonComponent>()
+                                     .Any(b => b.CustomId == "create_ticket"));
 
         var embed = new EmbedBuilder()
             .WithTitle("💼 Биржевик")
@@ -102,26 +109,17 @@ public class BotService
 
         if (botMessage != null)
         {
-            try
+            await botMessage.ModifyAsync(m =>
             {
-                // Если нашли сообщение бота — просто обновляем его (спама не будет)
-                await botMessage.ModifyAsync(m =>
-                {
-                    m.Embed = embed;
-                    m.Components = builder.Build();
-                });
-                Console.WriteLine("Главное меню обновлено (существующее сообщение).");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Ошибка обновления сообщения: {ex.Message}");
-            }
+                m.Embed = embed;
+                m.Components = builder.Build();
+            });
+            Console.WriteLine("[READY] Существующее меню обновлено.");
         }
         else
         {
-            // Если сообщений бота нет (или они удалены) — создаем новое
             await channel.SendMessageAsync(embed: embed, components: builder.Build());
-            Console.WriteLine("Главное меню отправлено в канал (новое сообщение).");
+            Console.WriteLine("[READY] Отправлено новое меню.");
         }
     }
 }

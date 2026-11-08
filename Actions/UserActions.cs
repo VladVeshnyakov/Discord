@@ -1,9 +1,9 @@
 using Discord;
 using Discord.WebSocket;
 using DiscordBirge.Data;
+using DiscordBirge.Helpers;
 using DiscordBirge.Models;
 using DiscordBirge.Services;
-using DiscordBirge.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,15 +16,17 @@ public class UserActions
     private readonly DbService _db;
     private readonly BepusdtService _bepusdt;
     private readonly OrderChannelService _orderChannels;
+    private readonly InfoMessageService _info;
     private const int ServicesPerPage = 5;
 
     private static readonly Dictionary<ulong, int> _userSelections = new();
 
-    public UserActions(DbService db, BepusdtService bepusdt, OrderChannelService orderChannels)
+    public UserActions(DbService db, BepusdtService bepusdt, OrderChannelService orderChannels, InfoMessageService info)
     {
         _db = db;
         _bepusdt = bepusdt;
         _orderChannels = orderChannels;
+        _info = info;
     }
 
     public void SaveUserSelection(ulong userId, int serviceId)
@@ -32,29 +34,12 @@ public class UserActions
         _userSelections[userId] = serviceId;
     }
 
-    // ==========================================
-    // МЕНЮ И НАВИГАЦИЯ
-    // ==========================================
-
     public async Task CreateTicketAsync(SocketMessageComponent component)
     {
         await component.DeferAsync(ephemeral: true);
         var textChannel = component.Channel as ITextChannel;
         var guildUser = component.User as IGuildUser;
-
         if (textChannel == null || guildUser == null) return;
-
-        // Проверяем, есть ли уже ветка с именем пользователя
-        var existingThreads = await textChannel.GetActiveThreadsAsync();
-        var existingThread = existingThreads.FirstOrDefault(t => 
-            t.Name == $"Личный-{guildUser.Username}" && 
-            t.Type == ThreadType.PrivateThread);
-
-        if (existingThread != null)
-        {
-            await component.FollowupAsync($"У вас уже есть личный кабинет: {existingThread.Mention}", ephemeral: true);
-            return;
-        }
 
         try
         {
@@ -62,8 +47,7 @@ public class UserActions
                 name: $"Личный-{guildUser.Username}",
                 type: ThreadType.PrivateThread,
                 autoArchiveDuration: ThreadArchiveDuration.OneDay,
-                invitable: false
-            );
+                invitable: false);
 
             await thread.AddUserAsync(guildUser);
             await thread.JoinAsync();
@@ -131,10 +115,6 @@ public class UserActions
         await component.UpdateAsync(m => { m.Embed = embed; m.Components = builder.Build(); });
     }
 
-    // ==========================================
-    // СПИСОК УСЛУГ И ПАГИНАЦИЯ
-    // ==========================================
-
     public async Task ShowAllExchangeServicesAsync(SocketMessageComponent component)
     {
         await FilterServicesAsync(component, null, 0);
@@ -158,11 +138,8 @@ public class UserActions
             .WithColor(Color.Purple);
 
         if (pageItems.Count == 0)
-        {
             embed.WithDescription("Услуг по данному фильтру не найдено.");
-        }
         else
-        {
             foreach (var service in pageItems)
             {
                 string priceLabel = service.Type == ServiceType.LP ? $"{service.Price} ₽ / игра" : $"{service.Price} ₽";
@@ -171,25 +148,18 @@ public class UserActions
                     (service.Type == ServiceType.Boost ? $"**MMR:** {service.MinMmr} - {service.MaxMmr}\n" : "") +
                     $"**Цена:** {priceLabel}\n" +
                     $"[Steam профиль]({service.BoosterSteam})";
-
                 embed.AddField($"🎮 {service.Name} ({service.Type})", description, inline: false);
             }
-        }
 
         var builder = new ComponentBuilder();
-
         if (pageItems.Count > 0)
         {
             var menu = new SelectMenuBuilder()
                 .WithCustomId("select_service_to_buy")
                 .WithPlaceholder("Выберите услугу для покупки")
                 .WithMinValues(1).WithMaxValues(1);
-
             foreach (var s in pageItems)
-            {
                 menu.AddOption($"{s.Name} - {s.Price}₽", s.Id.ToString(), $"Тип: {s.Type}");
-            }
-
             builder.WithSelectMenu(menu);
             builder.WithButton("💰 Купить выбранное", "buy_service_btn", ButtonStyle.Success);
         }
@@ -204,62 +174,50 @@ public class UserActions
         builder.WithButton("◀ Назад", $"page_{filterStr}_{page - 1}", ButtonStyle.Secondary, row: 2, disabled: page <= 0)
                .WithButton("Вперед ▶", $"page_{filterStr}_{page + 1}", ButtonStyle.Secondary, row: 2, disabled: page >= totalPages - 1);
 
-        await component.UpdateResponseAsync(embed: embed.Build(), components: builder.Build());
+        await component.Message.ModifyAsync(m => { m.Embed = embed.Build(); m.Components = builder.Build(); });
     }
-
-    // ==========================================
-    // ПОКУПКА (МОДАЛКИ)
-    // ==========================================
 
     public async Task HandleBuyServiceAsync(SocketMessageComponent component)
     {
+        // Модалка откроется ниже — не делаем Defer, чтобы RespondWithModal работал
         if (!_userSelections.TryGetValue(component.User.Id, out int serviceId))
         {
-            await component.SafeUpdateAsync("❌ Сначала выберите услугу в меню.");
+            await _info.ShowAsync(component.Channel, "❌ Сначала выберите услугу в меню.");
+            await component.UpdateAsync(m => { });
             return;
         }
 
         var service = await _db.GetServiceByIdAsync(serviceId);
         if (service == null)
         {
-            await component.SafeUpdateAsync("❌ Услуга не найдена.");
+            await _info.ShowAsync(component.Channel, "❌ Услуга не найдена.");
+            await component.UpdateAsync(m => { });
             return;
         }
 
-        // 1. Буст и Калибровка -> Спрашиваем Dota ID
         if (service.Type == ServiceType.Boost || service.Type == ServiceType.Calibration)
         {
             var modal = new ModalBuilder()
                 .WithTitle("Ваш Dota 2 Account ID")
                 .WithCustomId($"modal_dota_id_{service.Id}")
-                .AddTextInput("Dota Account ID", "dota_id",
-                    placeholder: "Например: 12345678",
-                    minLength: 5, maxLength: 12);
-
+                .AddTextInput("Dota Account ID", "dota_id", placeholder: "Например: 12345678", minLength: 5, maxLength: 12);
             await component.RespondWithModalAsync(modal.Build());
             return;
         }
 
-        // 2. LP -> Спрашиваем количество игр
         if (service.Type == ServiceType.LP)
         {
             var modal = new ModalBuilder()
                 .WithTitle("Сколько игр LP отыграть?")
                 .WithCustomId($"modal_lp_{service.Id}")
-                .AddTextInput("Количество игр", "games_count",
-                    placeholder: "Например: 5", minLength: 1, maxLength: 2);
-
+                .AddTextInput("Количество игр", "games_count", placeholder: "Например: 5", minLength: 1, maxLength: 2);
             await component.RespondWithModalAsync(modal.Build());
             return;
         }
 
-        // 3. Behavior -> Пока вручную
-        await component.SafeUpdateAsync("⚠️ Для этой услуги покупка пока не автоматизирована.");
+        await _info.ShowAsync(component.Channel, "⚠️ Для этой услуги покупка пока не автоматизирована.");
+        await component.UpdateAsync(m => { });
     }
-
-    // ==========================================
-    // КАБИНЕТ БУСТЕРА
-    // ==========================================
 
     public async Task ShowMyServicesAsync(SocketMessageComponent component)
     {
@@ -269,7 +227,8 @@ public class UserActions
 
         if (orders.Count == 0)
         {
-            await component.UpdateResponseAsync("📦 У вас нет активных заказов в работе.");
+            await _info.ShowAsync(component.Channel, "📦 У вас нет активных заказов в работе.");
+            await component.UpdateAsync(m => { });
             return;
         }
 
@@ -285,13 +244,16 @@ public class UserActions
         {
             string shiftStatus = order.IsShiftActive ? "🟢 Смена активна" : "🔴 Смена не начата";
 
-            string progressText = "";
-            if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
-                progressText = $"**MMR:** {order.CurrentMmr} / {order.TargetMmr} (дельта +{order.TargetMmrDelta})";
-            else if (order.Service.Type == ServiceType.LP)
-                progressText = $"**Игры LP:** {order.TotalGamesPlayed} / {order.TargetGames}";
-            else if (order.Service.Type == ServiceType.Behavior)
-                progressText = $"**Порядочность:** Завершается вручную (Сыграно игр: {order.TotalGamesPlayed})";
+            string progressText = order.Service.Type switch
+            {
+                ServiceType.Boost or ServiceType.Calibration =>
+                    $"**MMR:** {order.CurrentMmr} / {order.TargetMmr} (дельта +{order.TargetMmrDelta})",
+                ServiceType.LP =>
+                    $"**Игры LP:** {order.TotalGamesPlayed} / {order.TargetGames}",
+                ServiceType.Behavior =>
+                    $"**Порядочность:** Завершается вручную (Сыграно игр: {order.TotalGamesPlayed})",
+                _ => ""
+            };
 
             string label = $"#{order.Id}: {(order.IsShiftActive ? "Закончить" : "Начать")}";
             ButtonStyle style = order.IsShiftActive ? ButtonStyle.Danger : ButtonStyle.Success;
@@ -304,13 +266,12 @@ public class UserActions
                 $"{progressText}\n" +
                 $"**Игры:** бустер {order.BoosterGamesPlayed}, владелец {order.OwnerGamesPlayed}\n" +
                 $"**Цена:** {order.Price} ₽ | **Статус:** {shiftStatus}",
-                inline: false
-            );
+                inline: false);
             row++;
         }
 
         builder.WithButton("⬅ Назад", "menu_services", ButtonStyle.Secondary, row: row);
-        await component.UpdateResponseAsync(embed: embed.Build(), components: builder.Build());
+        await component.Message.ModifyAsync(m => { m.Embed = embed.Build(); m.Components = builder.Build(); });
     }
 
     public async Task StartShiftAsync(SocketMessageComponent component, int orderId)
@@ -320,13 +281,13 @@ public class UserActions
 
         if (order == null || order.BoosterId != component.User.Id)
         {
-            await component.UpdateResponseAsync("❌ Заказ не найден или он не ваш.");
+            await _info.ShowAsync(component.Channel, "❌ Заказ не найден или он не ваш.");
             return;
         }
 
         if (order.IsShiftActive)
         {
-            await component.UpdateResponseAsync("⚠️ Смена уже активна.");
+            await _info.ShowAsync(component.Channel, "⚠️ Смена уже активна.");
             return;
         }
 
@@ -339,7 +300,7 @@ public class UserActions
         await _db.UpdateOrderAsync(order);
         await _orderChannels.UpdateThreadsProgressAsync(order);
 
-        await component.UpdateResponseAsync("✅ Смена начата.");
+        await _info.ShowAsync(component.Channel, "✅ Смена начата. Удачи!");
     }
 
     public async Task EndShiftAsync(SocketMessageComponent component, int orderId)
@@ -349,13 +310,13 @@ public class UserActions
 
         if (order == null || order.BoosterId != component.User.Id)
         {
-            await component.UpdateResponseAsync("❌ Заказ не найден.");
+            await _info.ShowAsync(component.Channel, "❌ Заказ не найден.");
             return;
         }
 
         if (!order.IsShiftActive)
         {
-            await component.UpdateResponseAsync("⚠️ Смена и так не активна.");
+            await _info.ShowAsync(component.Channel, "⚠️ Смена и так не активна.");
             return;
         }
 
@@ -363,12 +324,8 @@ public class UserActions
         await _db.UpdateOrderAsync(order);
         await _orderChannels.UpdateThreadsProgressAsync(order);
 
-        await component.UpdateResponseAsync("🛑 Смена завершена.");
+        await _info.ShowAsync(component.Channel, "🛑 Смена завершена.");
     }
-
-    // ==========================================
-    // МОДАЛКА ДОБАВЛЕНИЯ УСЛУГИ
-    // ==========================================
 
     public async Task OpenAddServiceModalAsync(SocketMessageComponent component)
     {
