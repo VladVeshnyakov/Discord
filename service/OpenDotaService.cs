@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DiscordBirge.Services;
 
@@ -115,40 +116,81 @@ public class OpenDotaService
     }
 }
 
-// === DTOs ===
-public class DotaMatchDto
-{
-    public long MatchId { get; set; }
-    public int PlayerSlot { get; set; }
-    public bool RadiantWin { get; set; }
-    public long StartTime { get; set; }
-    public int HeroId { get; set; }
-}
-
-public class DotaMatchDetailsDto
-{
-    public long MatchId { get; set; }
-    public int? AvgMmr { get; set; }
-    public bool RadiantWin { get; set; }
-}
-
-public class DotaHeroDto { public string LocalizedName { get; set; } = ""; }
-
 public class DotaPlayerDto
 {
+    [JsonPropertyName("profile")]
     public DotaProfileDto? Profile { get; set; }
+
+    [JsonPropertyName("rank_tier")]
     public int? RankTier { get; set; }
+
+    [JsonPropertyName("leaderboard_rank")]
     public int? LeaderboardRank { get; set; }
+
+    [JsonPropertyName("computed_mmr")]
     public decimal? ComputedMmr { get; set; }
+
+    [JsonPropertyName("mmr_estimate")]
     public MmrEstimate? MmrEstimate { get; set; }
 }
 
 public class DotaProfileDto
 {
+    [JsonPropertyName("account_id")]
     public long AccountId { get; set; }
+
+    [JsonPropertyName("personaname")]
     public string? PersonaName { get; set; }
+
+    [JsonPropertyName("avatarfull")]
     public string? AvatarFull { get; set; }
 }
 
+public class DotaWlDto
+{
+    [JsonPropertyName("win")]
+    public int Win { get; set; }
+
+    [JsonPropertyName("lose")]
+    public int Lose { get; set; }
+}
+
+public class DotaMatchDto
+{
+    [JsonPropertyName("match_id")]
+    public long MatchId { get; set; }
+
+    [JsonPropertyName("player_slot")]
+    public int PlayerSlot { get; set; }
+
+    [JsonPropertyName("radiant_win")]
+    public bool RadiantWin { get; set; }
+
+    [JsonPropertyName("start_time")]
+    public long StartTime { get; set; }
+
+    [JsonPropertyName("hero_id")]
+    public int HeroId { get; set; }
+}
+
+public class DotaMatchDetailsDto
+{
+    [JsonPropertyName("match_id")]
+    public long MatchId { get; set; }
+
+    [JsonPropertyName("avg_mmr")]
+    public int? AvgMmr { get; set; }
+
+    [JsonPropertyName("radiant_win")]
+    public bool RadiantWin { get; set; }
+}
+
+public class DotaHeroDto
+{
+    [JsonPropertyName("localized_name")]
+    public string LocalizedName { get; set; } = "";
+}
+// === DTOs ===
+
+
 public class MmrEstimate { public int? Estimate { get; set; } }
-public class DotaWlDto { public int Win { get; set; } public int Lose { get; set; } }

@@ -29,7 +29,7 @@ public class ButtonHandlers
                 if (int.TryParse(selected, out int serviceId))
                 {
                     _actions.SaveUserSelection(component.User.Id, serviceId);
-                    await _info.UpdateAsync(component.Channel, $"✅ Услуга #{serviceId} выбрана. Нажмите «Купить выбранное».");
+                    await _info.UpdateAsync(component.Channel, "✅ Нажмите «Купить выбранное».   \n         Cформируется платежная страница.");
                 }
             }
 

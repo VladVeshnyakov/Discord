@@ -177,6 +177,7 @@ public class OrderChannelService
     {
         var player = await _dota.GetPlayerInfoAsync(order.DotaAccountId);
         var wl = await _dota.GetWinLossAsync(order.DotaAccountId);
+        Console.WriteLine($"win {wl.Win} ;ose {wl.Lose}");
         var heroNames = await _dota.GetHeroNamesAsync();
         var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
 
@@ -195,7 +196,6 @@ public class OrderChannelService
             int? mmr = player.MmrEstimate?.Estimate ?? (int?)(player.ComputedMmr);
             if (mmr != null)
                 profile += $"**MMR:** ~{mmr}\n";
-
             if (wl != null && wl.Win + wl.Lose > 0)
             {
                 int total = wl.Win + wl.Lose;

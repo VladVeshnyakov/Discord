@@ -114,7 +114,7 @@ public class ModalHandlers
 
         string personaName = player.Profile.PersonaName;
         string rankName = DotaRankHelper.GetRankName(player.RankTier, player.LeaderboardRank);
-
+        
         var embed = new EmbedBuilder()
             .WithTitle($"💳 Счёт на оплату #{order.Id}")
             .WithDescription(
@@ -123,7 +123,6 @@ public class ModalHandlers
                 $"**🎮 Аккаунт:**\n" +
                 $"Никнейм: **{personaName}**\n" +
                 $"Ранг: **{rankName}**\n" +
-                $"MMR (оценка): **~{startMmr}**\n\n" +
                 $"Оплатите по ссылке ниже. После оплаты бот создаст приватные ветки для вас и бустера.")
             .WithColor(Color.Green)
             .WithFooter("Счёт действителен 15 минут")
