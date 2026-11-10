@@ -34,8 +34,6 @@ public class UserActions
         _userSelections[userId] = serviceId;
     }
 
-    // ===== НАВИГАЦИЯ (UpdateAsync на сообщении с кнопками) =====
-
     public async Task CreateTicketAsync(SocketMessageComponent component)
     {
         await component.DeferAsync(ephemeral: true);
@@ -65,11 +63,15 @@ public class UserActions
                 .WithButton("Услуги", "menu_services", ButtonStyle.Primary);
 
             await thread.SendMessageAsync(embed: embed, components: builder.Build());
+
+            // Создаём инфо-блок в новой ветке
+            await _info.CleanupAndCreateAsync(thread, "Жду действия.", marker: "📌");
+
             await component.FollowupAsync($"Ветка создана! {thread.Mention}", ephemeral: true);
         }
         catch (Exception ex)
         {
-            await _info.ShowAsync(component.Channel, $"❌ Ошибка: {ex.Message}");
+            await _info.UpdateAsync(component.Channel, $"❌ Ошибка: {ex.Message}");
         }
     }
 
@@ -184,7 +186,7 @@ public class UserActions
         if (!_userSelections.TryGetValue(component.User.Id, out int serviceId))
         {
             await component.UpdateAsync(m => { });
-            await _info.ShowAsync(component.Channel, "❌ Сначала выберите услугу в меню.");
+            await _info.UpdateAsync(component.Channel, "❌ Сначала выберите услугу в меню.");
             return;
         }
 
@@ -192,7 +194,7 @@ public class UserActions
         if (service == null)
         {
             await component.UpdateAsync(m => { });
-            await _info.ShowAsync(component.Channel, "❌ Услуга не найдена.");
+            await _info.UpdateAsync(component.Channel, "❌ Услуга не найдена.");
             return;
         }
 
@@ -217,7 +219,7 @@ public class UserActions
         }
 
         await component.UpdateAsync(m => { });
-        await _info.ShowAsync(component.Channel, "⚠️ Для этой услуги покупка пока не автоматизирована.");
+        await _info.UpdateAsync(component.Channel, "⚠️ Для этой услуги покупка пока не автоматизирована.");
     }
 
     public async Task ShowMyServicesAsync(SocketMessageComponent component)
@@ -227,7 +229,7 @@ public class UserActions
         var orders = await _db.GetBoosterActiveOrdersAsync(component.User.Id);
         if (orders.Count == 0)
         {
-            await _info.ShowAsync(component.Channel, "📦 У вас нет активных заказов в работе.");
+            await _info.UpdateAsync(component.Channel, "📦 У вас нет активных заказов в работе.");
             return;
         }
 
@@ -278,13 +280,13 @@ public class UserActions
 
         if (order == null || order.BoosterId != component.User.Id)
         {
-            await _info.ShowAsync(component.Channel, "❌ Заказ не найден или он не ваш.");
+            await _info.UpdateAsync(component.Channel, "❌ Заказ не найден или он не ваш.");
             return;
         }
 
         if (order.IsShiftActive)
         {
-            await _info.ShowAsync(component.Channel, "⚠️ Смена уже активна.");
+            await _info.UpdateAsync(component.Channel, "⚠️ Смена уже активна.");
             return;
         }
 
@@ -297,7 +299,7 @@ public class UserActions
         await _db.UpdateOrderAsync(order);
         await _orderChannels.UpdateThreadsProgressAsync(order);
 
-        await _info.ShowAsync(component.Channel, $"✅ Смена по заказу #{order.Id} начата.");
+        await _info.UpdateAsync(component.Channel, $"✅ Смена по заказу #{order.Id} начата.");
     }
 
     public async Task EndShiftAsync(SocketMessageComponent component, int orderId)
@@ -307,13 +309,13 @@ public class UserActions
 
         if (order == null || order.BoosterId != component.User.Id)
         {
-            await _info.ShowAsync(component.Channel, "❌ Заказ не найден.");
+            await _info.UpdateAsync(component.Channel, "❌ Заказ не найден.");
             return;
         }
 
         if (!order.IsShiftActive)
         {
-            await _info.ShowAsync(component.Channel, "⚠️ Смена и так не активна.");
+            await _info.UpdateAsync(component.Channel, "⚠️ Смена и так не активна.");
             return;
         }
 
@@ -321,7 +323,7 @@ public class UserActions
         await _db.UpdateOrderAsync(order);
         await _orderChannels.UpdateThreadsProgressAsync(order);
 
-        await _info.ShowAsync(component.Channel, $"🛑 Смена по заказу #{order.Id} завершена.");
+        await _info.UpdateAsync(component.Channel, $"🛑 Смена по заказу #{order.Id} завершена.");
     }
 
     public async Task OpenAddServiceModalAsync(SocketMessageComponent component)

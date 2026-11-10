@@ -1,6 +1,7 @@
 using Discord;
 using Discord.WebSocket;
 using DiscordBirge.Data;
+using DiscordBirge.Helpers;
 using DiscordBirge.Models;
 using DiscordBirge.Services;
 using System;
@@ -14,12 +15,14 @@ public class ModalHandlers
     private readonly DbService _db;
     private readonly BepusdtService _bepusdt;
     private readonly OpenDotaService _dota;
+    private readonly InfoMessageService _info;
 
-    public ModalHandlers(DbService db, BepusdtService bepusdt, OpenDotaService dota)
+    public ModalHandlers(DbService db, BepusdtService bepusdt, OpenDotaService dota, InfoMessageService info)
     {
         _db = db;
         _bepusdt = bepusdt;
         _dota = dota;
+        _info = info;
     }
 
     public async Task HandleModalAsync(SocketModal modal)
@@ -100,9 +103,12 @@ public class ModalHandlers
             webhookUrl: webhookUrl,
             redirectUrl: redirectUrl);
 
+        // Отвечаем на модалку (закрываем её)
+        await modal.DeferAsync(ephemeral: true);
+
         if (payUrl == null)
         {
-            await modal.RespondAsync("❌ Ошибка при создании счёта. Попробуйте позже.", ephemeral: true);
+            await _info.UpdateAsync(modal.Channel, "❌ Ошибка при создании счёта. Попробуйте позже.");
             return;
         }
 
@@ -120,15 +126,18 @@ public class ModalHandlers
                 $"MMR (оценка): **~{startMmr}**\n\n" +
                 $"Оплатите по ссылке ниже. После оплаты бот создаст приватные ветки для вас и бустера.")
             .WithColor(Color.Green)
-            .WithFooter("Счёт действителен 15 минут");
-
-        if (!string.IsNullOrEmpty(player.Profile.AvatarFull))
-            embed.WithThumbnailUrl(player.Profile.AvatarFull);
+            .WithFooter("Счёт действителен 15 минут")
+            .Build();
 
         var builder = new ComponentBuilder()
             .WithButton("💸 Перейти к оплате", style: ButtonStyle.Link, url: payUrl);
 
-        await modal.RespondAsync(embed: embed.Build(), components: builder.Build(), ephemeral: true);
+        // Обновляем ОДИН инфо-блок в канале, а не создаём новое сообщение
+        await _info.UpdateAsync(
+            modal.Channel, 
+            "Оплатите счёт по кнопке ниже.", 
+            embed: embed, 
+            components: builder.Build());
     }
 
     private async Task ProcessLpGamesModalAsync(SocketModal modal)
@@ -177,9 +186,12 @@ public class ModalHandlers
             webhookUrl: webhookUrl,
             redirectUrl: redirectUrl);
 
+        // Отвечаем на модалку (закрываем её)
+        await modal.DeferAsync(ephemeral: true);
+
         if (payUrl == null)
         {
-            await modal.RespondAsync("❌ Ошибка при создании счёта.", ephemeral: true);
+            await _info.UpdateAsync(modal.Channel, "❌ Ошибка при создании счёта.");
             return;
         }
 
@@ -190,12 +202,18 @@ public class ModalHandlers
                 $"**Игр:** {gamesCount} × {service.Price} ₽ = **{totalPrice} ₽**\n\n" +
                 $"Оплатите по ссылке ниже.")
             .WithColor(Color.Green)
-            .WithFooter("Счёт действителен 15 минут");
+            .WithFooter("Счёт действителен 15 минут")
+            .Build();
 
         var builder = new ComponentBuilder()
             .WithButton("💸 Перейти к оплате", style: ButtonStyle.Link, url: payUrl);
 
-        await modal.RespondAsync(embed: embed.Build(), components: builder.Build(), ephemeral: true);
+        // Обновляем ОДИН инфо-блок в канале
+        await _info.UpdateAsync(
+            modal.Channel, 
+            "Оплатите счёт по кнопке ниже.", 
+            embed: embed, 
+            components: builder.Build());
     }
 
     private async Task ProcessCreateServiceAsync(SocketModal modal)
@@ -266,6 +284,9 @@ public class ModalHandlers
 
         await _db.AddServiceAsync(service);
 
+        // Отвечаем на модалку (закрываем её)
+        await modal.DeferAsync(ephemeral: true);
+
         var embed = new EmbedBuilder()
             .WithTitle("✅ Услуга создана")
             .WithDescription(
@@ -275,8 +296,10 @@ public class ModalHandlers
                 (type == ServiceType.Boost ? $"\n**Диапазон MMR:** {minMmr} - {maxMmr}" : "") +
                 (string.IsNullOrEmpty(steamLink) ? "" : $"\n**Steam:** [профиль]({steamLink})"))
             .WithColor(Color.Green)
-            .WithFooter($"ID услуги: {service.Id}");
+            .WithFooter($"ID услуги: {service.Id}")
+            .Build();
 
-        await modal.RespondAsync(embed: embed.Build(), ephemeral: true);
+        // Показываем результат в инфо-блоке
+        await _info.UpdateAsync(modal.Channel, "Услуга успешно создана.", embed: embed);
     }
 }

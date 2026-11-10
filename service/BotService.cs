@@ -1,7 +1,6 @@
 using Discord;
 using Discord.WebSocket;
 using DiscordBirge.Handlers;
-using DiscordBirge.Actions;
 using DiscordBirge.Data;
 using DiscordBirge.Helpers;
 using DiscordBirge.Services;
@@ -10,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using DiscordBirge.Actions;
 
 namespace DiscordBirge;
 
@@ -58,7 +58,9 @@ public class BotService
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
-            var modalHandlers = new ModalHandlers(db, bepusdt, dota);
+            var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
+    
+            var modalHandlers = new ModalHandlers(db, bepusdt, dota, info);
             await modalHandlers.HandleModalAsync(modal);
         };
     }
@@ -79,43 +81,56 @@ public class BotService
     {
         Console.WriteLine($"Бот {_client.CurrentUser.Username} подключен!");
 
-        ulong channelId = 1568654498723930284;
-        var channel = _client.GetChannel(channelId) as IMessageChannel;
-        if (channel == null) return;
+        var info = _services.GetRequiredService<InfoMessageService>();
+        ulong mainChannelId = 1568654498723930284;
 
-        var messages = await channel.GetMessagesAsync(50).FlattenAsync();
-        var botMessage = messages
-            .OfType<IUserMessage>()
-            .FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id &&
-                                 m.Components != null &&
-                                 m.Components
-                                     .OfType<ActionRowComponent>()
-                                     .SelectMany(r => r.Components)
-                                     .OfType<ButtonComponent>()
-                                     .Any(b => b.CustomId == "create_ticket"));
-
-        var embed = new EmbedBuilder()
-            .WithTitle("💼 Биржевик")
-            .WithDescription("Нажмите кнопку ниже, чтобы открыть личный кабинет.")
-            .WithColor(Color.Blue)
-            .Build();
-
-        var builder = new ComponentBuilder()
-            .WithButton("Создать личный кабинет", "create_ticket", ButtonStyle.Primary);
-
-        if (botMessage != null)
+        if (_client.GetChannel(mainChannelId) is ITextChannel textChannel)
         {
-            await botMessage.ModifyAsync(m =>
+            // 1. Главное меню с кнопкой
+            var messages = await textChannel.GetMessagesAsync(50).FlattenAsync();
+            var botMessage = messages
+                .OfType<IUserMessage>()
+                .FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id &&
+                                     m.Components != null &&
+                                     m.Components
+                                         .OfType<ActionRowComponent>()
+                                         .SelectMany(r => r.Components)
+                                         .OfType<ButtonComponent>()
+                                         .Any(b => b.CustomId == "create_ticket"));
+
+            var embed = new EmbedBuilder()
+                .WithTitle("💼 Биржевик")
+                .WithDescription("Нажмите кнопку ниже, чтобы открыть личный кабинет.")
+                .WithColor(Color.Blue)
+                .Build();
+
+            var builder = new ComponentBuilder()
+                .WithButton("Создать личный кабинет", "create_ticket", ButtonStyle.Primary);
+
+            if (botMessage != null)
             {
-                m.Embed = embed;
-                m.Components = builder.Build();
-            });
-            Console.WriteLine("[READY] Меню обновлено.");
+                await botMessage.ModifyAsync(m => { m.Embed = embed; m.Components = builder.Build(); });
+                Console.WriteLine("[READY] Главное меню обновлено.");
+            }
+            else
+            {
+                await textChannel.SendMessageAsync(embed: embed, components: builder.Build());
+                Console.WriteLine("[READY] Главное меню отправлено.");
+            }
+
+            // 2. Чистим и создаём инфо-сообщения во всех активных ветках
+            var activeThreads = await textChannel.GetActiveThreadsAsync();
+            foreach (var thread in activeThreads)
+            {
+                await info.CleanupAndCreateAsync(thread, "Жду действия.", marker: "📌");
+            }
+
+            // 3. Чистим и создаём в основном канале
+            await info.CleanupAndCreateAsync(textChannel, "Добро пожаловать! Выберите действие.", marker: "📌");
         }
         else
         {
-            await channel.SendMessageAsync(embed: embed, components: builder.Build());
-            Console.WriteLine("[READY] Меню отправлено.");
+            Console.WriteLine("❌ Главный канал не найден.");
         }
     }
 }

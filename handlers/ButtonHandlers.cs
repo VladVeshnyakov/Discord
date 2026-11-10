@@ -29,13 +29,10 @@ public class ButtonHandlers
                 if (int.TryParse(selected, out int serviceId))
                 {
                     _actions.SaveUserSelection(component.User.Id, serviceId);
-
-                    // Находим название для красивого сообщения (необязательно)
-                    await _info.ShowAsync(component.Channel, $"✅ Услуга #{serviceId} выбрана. Нажмите «Купить выбранное».");
+                    await _info.UpdateAsync(component.Channel, $"✅ Услуга #{serviceId} выбрана. Нажмите «Купить выбранное».");
                 }
             }
 
-            // Обновляем сообщение с меню, чтобы подтвердить взаимодействие
             await component.UpdateAsync(m => { });
         }
         catch (Exception ex)
