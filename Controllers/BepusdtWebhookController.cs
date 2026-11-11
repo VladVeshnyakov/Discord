@@ -150,35 +150,53 @@ public class BepusdtWebhookController : ControllerBase
     }
     private async Task CreateOrderThreadsAsync(Order order)
 {
-    var guild = _client.GetGuild(_guildId);
-    if (guild == null) return;
-
-    var channel = guild.GetTextChannel(_guildId);
-    if (channel == null)
+    // 1. Читаем ID канала из конфига (а не из _client!)
+    if (!ulong.TryParse(_config["Discord:OrdersChannelId"], out var ordersChannelId))
     {
-        Console.WriteLine($"[ORDER THREADS] Канал {_guildId} не найден");
+        Console.WriteLine("[ORDER THREADS] Discord:OrdersChannelId не задан или не парсится");
         return;
     }
 
-    // Защита от дублей при повторном вебхуке
+    // 2. Гильдия — по ID сервера
+    var guild = _client.GetGuild(_guildId);
+    if (guild == null)
+    {
+        Console.WriteLine($"[ORDER THREADS] Гильдия {_guildId} не найдена");
+        return;
+    }
+
+    // 3. Канал — по ID канала
+    var channel = guild.GetTextChannel(ordersChannelId);
+    if (channel == null)
+    {
+        Console.WriteLine($"[ORDER THREADS] Канал {ordersChannelId} не найден (или это не текстовый канал)");
+        return;
+    }
+
+    // 4. Защита от дублей
     if (order.ClientThreadId != null && order.BoosterThreadId != null)
     {
         Console.WriteLine($"[ORDER THREADS] Заказ #{order.Id} уже имеет ветки, пропуск");
         return;
     }
 
+    // 5. Участники
     var client = guild.GetUser(order.ClientId);
     var booster = order.BoosterId != 0 ? guild.GetUser(order.BoosterId) : null;
 
-    // ── Клиентская ветка ──
+    if (client == null)
+        Console.WriteLine($"[ORDER THREADS] Клиент {order.ClientId} не найден на сервере");
+    if (booster == null && order.BoosterId != 0)
+        Console.WriteLine($"[ORDER THREADS] Бустер {order.BoosterId} не найден на сервере");
+
+    // 6. Создаём ветки
     var clientThread = await CreatePrivateThreadAsync(
         channel, $"Заказ #{order.Id} — Клиент",
-        new[] { client, booster });
+        new IGuildUser?[] { client, booster });
 
-    // ── Бустерская ветка ──
     var boosterThread = await CreatePrivateThreadAsync(
         channel, $"Заказ #{order.Id} — Бустер",
-        new[] { booster, client });
+        new IGuildUser?[] { booster, client });
 
     if (clientThread == null || boosterThread == null)
     {
@@ -186,18 +204,17 @@ public class BepusdtWebhookController : ControllerBase
         return;
     }
 
-    // Сохраняем ID в Order, чтобы MatchTrackerService писал в них
+    // 7. Сохраняем ID в Order
     order.ClientThreadId = clientThread.Id;
     order.BoosterThreadId = boosterThread.Id;
     await _db.UpdateOrderAsync(order);
 
-    // Приветственные эмбеды (по одному в каждой ветке)
+    // 8. Приветственные сообщения
     await SendOrderWelcomeAsync(clientThread, order, "client");
     await SendOrderWelcomeAsync(boosterThread, order, "booster");
 
     Console.WriteLine($"[ORDER THREADS] Заказ #{order.Id}: client={clientThread.Id}, booster={boosterThread.Id}");
 }
-
 private async Task<IThreadChannel?> CreatePrivateThreadAsync(
     ITextChannel channel, string name, IEnumerable<IGuildUser?> users)
 {
