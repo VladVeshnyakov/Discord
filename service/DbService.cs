@@ -24,6 +24,14 @@ public class DbService
         return service;
     }
 
+    public async Task<List<Order>> GetActiveOrdersAsync(CancellationToken ct = default)
+    {
+        return await _db.Orders
+            .Include(o => o.Service)
+            .Include(o => o.Shifts)
+            .Where(o => o.ClientThreadId != null)
+            .ToListAsync(ct);
+    }
     public async Task<List<ServiceItem>> GetServicesAsync(ServiceType? filterType = null, int skip = 0, int take = 5)
     {
         var query = _db.Services.Where(s => s.IsActive).AsQueryable();

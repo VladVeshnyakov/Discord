@@ -23,7 +23,6 @@ builder.Services.AddHttpClient<BepusdtService>();
 builder.Services.AddScoped<OrderChannelService>();
 builder.Services.AddHttpClient<OpenDotaService>();
 builder.Services.AddSingleton<InfoMessageService>();
-builder.Services.AddHostedService<MatchTrackerService>();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddSingleton<BotService>();

@@ -9,6 +9,7 @@ public class AppDbContext : DbContext
     public DbSet<ServiceItem> Services { get; set; }
     public DbSet<Order> Orders { get; set; }
     public DbSet<UserProfile> Users { get; set; }
+    public DbSet<Shift> Shifts { get; set; }
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -35,5 +36,10 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Order>()
             .Property(o => o.Price)
             .HasPrecision(18, 2);
+        modelBuilder.Entity<Shift>()
+            .HasOne(s => s.Order)
+            .WithMany(o => o.Shifts)
+            .HasForeignKey(s => s.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

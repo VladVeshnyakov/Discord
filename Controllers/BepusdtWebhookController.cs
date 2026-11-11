@@ -12,6 +12,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System;
 using System.IO;
+using Discord;
 
 [ApiController]
 [Route("api/webhooks/bepusdt")]
@@ -23,6 +24,7 @@ public class BepusdtWebhookController : ControllerBase
     private readonly string _apiToken;
     private readonly ulong _guildId;
     private readonly ulong _clientRoleId;
+    IConfiguration _config;
 
     public BepusdtWebhookController(
         DbService db, 
@@ -30,6 +32,7 @@ public class BepusdtWebhookController : ControllerBase
         OrderChannelService orderChannels,
         IConfiguration config)
     {
+        _config = config;
         _db = db;
         _client = client;
         _orderChannels = orderChannels;
@@ -103,15 +106,14 @@ public class BepusdtWebhookController : ControllerBase
 
                 var guild = _client.GetGuild(_guildId);
                 var user = guild?.GetUser(order.ClientId);
-                
+
                 if (user != null)
                 {
                     var role = guild!.GetRole(_clientRoleId);
                     if (role != null) await user.AddRoleAsync(role);
                 }
 
-                // Создаем ветки для клиента и бустера
-                await _orderChannels.CreateOrderThreadsAsync(order);
+                await CreateOrderThreadsAsync(order);   // ← вот это
             }
         }
 
@@ -146,7 +148,122 @@ public class BepusdtWebhookController : ControllerBase
 
         return computed == notify.signature.ToLower();
     }
+    private async Task CreateOrderThreadsAsync(Order order)
+{
+    var guild = _client.GetGuild(_guildId);
+    if (guild == null) return;
+
+    var channel = guild.GetTextChannel(_guildId);
+    if (channel == null)
+    {
+        Console.WriteLine($"[ORDER THREADS] Канал {_guildId} не найден");
+        return;
+    }
+
+    // Защита от дублей при повторном вебхуке
+    if (order.ClientThreadId != null && order.BoosterThreadId != null)
+    {
+        Console.WriteLine($"[ORDER THREADS] Заказ #{order.Id} уже имеет ветки, пропуск");
+        return;
+    }
+
+    var client = guild.GetUser(order.ClientId);
+    var booster = order.BoosterId != 0 ? guild.GetUser(order.BoosterId) : null;
+
+    // ── Клиентская ветка ──
+    var clientThread = await CreatePrivateThreadAsync(
+        channel, $"Заказ #{order.Id} — Клиент",
+        new[] { client, booster });
+
+    // ── Бустерская ветка ──
+    var boosterThread = await CreatePrivateThreadAsync(
+        channel, $"Заказ #{order.Id} — Бустер",
+        new[] { booster, client });
+
+    if (clientThread == null || boosterThread == null)
+    {
+        Console.WriteLine($"[ORDER THREADS] Не удалось создать ветки для заказа #{order.Id}");
+        return;
+    }
+
+    // Сохраняем ID в Order, чтобы MatchTrackerService писал в них
+    order.ClientThreadId = clientThread.Id;
+    order.BoosterThreadId = boosterThread.Id;
+    await _db.UpdateOrderAsync(order);
+
+    // Приветственные эмбеды (по одному в каждой ветке)
+    await SendOrderWelcomeAsync(clientThread, order, "client");
+    await SendOrderWelcomeAsync(boosterThread, order, "booster");
+
+    Console.WriteLine($"[ORDER THREADS] Заказ #{order.Id}: client={clientThread.Id}, booster={boosterThread.Id}");
 }
+
+private async Task<IThreadChannel?> CreatePrivateThreadAsync(
+    ITextChannel channel, string name, IEnumerable<IGuildUser?> users)
+{
+    try
+    {
+        var thread = await channel.CreateThreadAsync(
+            name: name,
+            type: ThreadType.PrivateThread,
+            autoArchiveDuration: ThreadArchiveDuration.OneWeek,
+            invitable: false);
+
+        foreach (var u in users)
+            if (u != null) await thread.AddUserAsync(u);
+
+        await thread.JoinAsync();
+        return thread;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[ORDER THREADS CREATE ERROR] {ex.Message}");
+        return null;
+    }
+}
+
+private async Task SendOrderWelcomeAsync(IThreadChannel thread, Order order, string role)
+{
+    var service = order.Service;
+
+    var embed = new EmbedBuilder()
+        .WithTitle($"Заказ #{order.Id}")
+        .WithColor(Color.Blue)
+        .WithCurrentTimestamp();
+
+    if (service != null)
+    {
+        string priceLabel = service.Type == ServiceType.LP
+            ? $"{service.Price} ₽ / игра"
+            : $"{service.Price} ₽";
+
+        embed.AddField("Услуга",
+            $"**{service.Name}** ({service.Type})\nЦена: {priceLabel}",
+            inline: false);
+    }
+
+    embed.AddField("Клиент", $"<@{order.ClientId}>", inline: true);
+    embed.AddField("Бустер",
+        order.BoosterId != 0 ? $"<@{order.BoosterId}>" : "не назначен",
+        inline: true);
+
+    if (role == "client")
+    {
+        embed.WithDescription(
+            "Спасибо за оплату! Здесь вы будете видеть прогресс по заказу.\n" +
+            "Бот будет обновлять это сообщение автоматически. 📊");
+    }
+    else
+    {
+        embed.WithDescription(
+            "Заказ оплачен. Нажмите «Начать смену» в меню «Мои услуги», " +
+            "когда приступите к работе. Бот будет обновлять прогресс автоматически. 📊");
+    }
+
+    await thread.SendMessageAsync(embed: embed.Build());
+}
+}
+
 
 public class BepusdtNotify
 {

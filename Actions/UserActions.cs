@@ -203,7 +203,8 @@ public class UserActions
             var modal = new ModalBuilder()
                 .WithTitle("Ваш Dota 2 Account ID")
                 .WithCustomId($"modal_dota_id_{service.Id}")
-                .AddTextInput("Dota Account ID", "dota_id", placeholder: "Например: 12345678", minLength: 5, maxLength: 12);
+                .AddTextInput("Dota Account ID", "dota_id", placeholder: "Например: 12345678", minLength: 5, maxLength: 12)
+                .AddTextInput("Рейтинг на указанном акаунте", "mmr", placeholder: "вводите строго число, например 4967", minLength: 3, maxLength: 17);
             await component.RespondWithModalAsync(modal.Build());
             return;
         }
@@ -213,10 +214,22 @@ public class UserActions
             var modal = new ModalBuilder()
                 .WithTitle("Сколько игр LP отыграть?")
                 .WithCustomId($"modal_lp_{service.Id}")
-                .AddTextInput("Количество игр", "games_count", placeholder: "Например: 5", minLength: 1, maxLength: 2);
+                .AddTextInput("Количество игр", "games_count", placeholder: "Например: 5", minLength: 1, maxLength: 2)
+                .AddTextInput("Dota Account ID", "dota_id", placeholder: "Например: 12345678", minLength: 5, maxLength: 12);
             await component.RespondWithModalAsync(modal.Build());
             return;
         }
+        if (service.Type == ServiceType.Behavior)
+        {
+            var modal = new ModalBuilder()
+                .WithTitle("Сколько игр в анранкед отыграть")
+                .WithCustomId($"modal_lp_{service.Id}")
+                .AddTextInput("Количество игр", "games_count", placeholder: "Например: 5", minLength: 1, maxLength: 2)
+                .AddTextInput("Dota Account ID", "dota_id", placeholder: "Например: 12345678", minLength: 5, maxLength: 12);
+            await component.RespondWithModalAsync(modal.Build());
+            return;
+        }
+        
 
         await component.UpdateAsync(m => { });
         await _info.UpdateAsync(component.Channel, "⚠️ Для этой услуги покупка пока не автоматизирована.");
@@ -297,7 +310,6 @@ public class UserActions
             order.TargetMmr = order.CurrentMmr + order.TargetMmrDelta;
 
         await _db.UpdateOrderAsync(order);
-        await _orderChannels.UpdateThreadsProgressAsync(order);
 
         await _info.UpdateAsync(component.Channel, $"✅ Смена по заказу #{order.Id} начата.");
     }
@@ -321,9 +333,65 @@ public class UserActions
 
         order.IsShiftActive = false;
         await _db.UpdateOrderAsync(order);
-        await _orderChannels.UpdateThreadsProgressAsync(order);
 
         await _info.UpdateAsync(component.Channel, $"🛑 Смена по заказу #{order.Id} завершена.");
+    }
+    public async Task UpdateProgressAsync(IMessageChannel channel, Order order, OrderProgressInfo progress)
+    {
+        try
+        {
+            var embed = BuildProgressEmbed(order, progress);
+            await _info.UpdateAsync(channel, text: "", embed: embed, marker: "📊");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PROGRESS EMBED ERROR] {ex.Message}");
+        }
+    }
+
+    private Embed BuildProgressEmbed(Order order, OrderProgressInfo progress)
+    {
+        var embed = new EmbedBuilder()
+            .WithTitle($"📊 Прогресс по заказу #{order.Id}")
+            .WithColor(progress.BoosterWins >= progress.BoosterLosses ? Color.Green : Color.Orange)
+            .WithFooter("Обновляется автоматически")
+            .WithCurrentTimestamp();
+
+        embed.AddField("🎮 Бустер",
+            $"**{progress.BoosterGames}** игр · **{progress.BoosterWins}W** / {progress.BoosterLosses}L\n" +
+            $"Винрейт: **{progress.BoosterWinrate:F1}%**",
+            inline: true);
+
+        embed.AddField("👤 Клиент",
+            $"**{progress.ClientGames}** игр",
+            inline: true);
+
+        embed.AddField("📈 После старта буста",
+            $"Всего: **{progress.TotalGamesSinceBoost}** игр",
+            inline: true);
+
+        switch (order.Service?.Type)
+        {
+            case ServiceType.Boost:
+            case ServiceType.Calibration:
+                embed.AddField("🎯 MMR",
+                    $"Сейчас: **{order.CurrentMmr}**\n" +
+                    $"Цель: **{order.TargetMmr}** (Δ {order.TargetMmrDelta:+0;-#})",
+                    inline: false);
+                break;
+            case ServiceType.LP:
+                embed.AddField("🎯 Игры LP",
+                    $"Сыграно: **{progress.BoosterGames}** / {order.TargetGames}",
+                    inline: false);
+                break;
+            case ServiceType.Behavior:
+                embed.AddField("🎯 Порядочность",
+                    $"Сыграно игр: **{progress.BoosterGames}**",
+                    inline: false);
+                break;
+        }
+
+        return embed.Build();
     }
 
     public async Task OpenAddServiceModalAsync(SocketMessageComponent component)

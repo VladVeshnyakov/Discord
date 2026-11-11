@@ -162,6 +162,33 @@ namespace DiscordBirge.Migrations
                     b.ToTable("Services");
                 });
 
+            modelBuilder.Entity("DiscordBirge.Models.Shift", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EndUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("OrderId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.ToTable("Shifts");
+                });
+
             modelBuilder.Entity("DiscordBirge.Models.UserProfile", b =>
                 {
                     b.Property<int>("Id")
@@ -204,6 +231,22 @@ namespace DiscordBirge.Migrations
                         .IsRequired();
 
                     b.Navigation("Service");
+                });
+
+            modelBuilder.Entity("DiscordBirge.Models.Shift", b =>
+                {
+                    b.HasOne("DiscordBirge.Models.Order", "Order")
+                        .WithMany("Shifts")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("DiscordBirge.Models.Order", b =>
+                {
+                    b.Navigation("Shifts");
                 });
 #pragma warning restore 612, 618
         }

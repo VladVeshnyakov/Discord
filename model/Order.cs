@@ -37,6 +37,7 @@ public class Order
     public int TargetGames { get; set; } = 0; 
 
     // --- СТАТИСТИКА ---
+    public List<Shift> Shifts { get; set; } = new();
     public int BoosterGamesPlayed { get; set; } = 0;
     public int OwnerGamesPlayed { get; set; } = 0;
 
@@ -60,4 +61,15 @@ public class Order
 
     [NotMapped]
     public decimal BoosterTotalPayout => PricePerGame * BoosterGamesPlayed;
+}
+
+public class Shift
+{
+    public int Id { get; set; }              // PK
+    public int OrderId { get; set; }         // FK → Order
+    public Order Order { get; set; }         // navigation
+
+    public DateTime StartUtc { get; set; }   // начало смены (UTC!)
+    public DateTime? EndUtc { get; set; }    // null = смена ещё идёт
+    public DateTime CreatedAtUtc { get; set; }    // когда запись создана (аудит)
 }

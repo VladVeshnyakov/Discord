@@ -1,172 +1,167 @@
+using Discord;
+using Discord.WebSocket;
+using DiscordBirge.Actions;
 using DiscordBirge.Data;
+using DiscordBirge.Helpers;
 using DiscordBirge.Models;
-using Microsoft.EntityFrameworkCore;
+using DiscordBirge.Services;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
-namespace DiscordBirge.Services;
-
-public class OrderMatch
-{
-    public long MatchId { get; set; }
-    public long StartTime { get; set; }
-    public bool IsWin { get; set; }
-    public bool IsBooster { get; set; }
-    public int HeroId { get; set; }
-    public int MmrDelta { get; set; }
-}
+namespace DiscordBirge.Workers;
 
 public class MatchTrackerService : BackgroundService
 {
-    private readonly IServiceProvider _services;
-    private readonly OpenDotaService _dota;
+    private readonly ILogger<MatchTrackerService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly DiscordSocketClient _client;
 
-    public MatchTrackerService(IServiceProvider services, OpenDotaService dota)
+    public MatchTrackerService(
+        ILogger<MatchTrackerService> logger,
+        IServiceScopeFactory scopeFactory,
+        DiscordSocketClient client)
     {
-        _services = services;
-        _dota = dota;
+        _logger = logger;
+        _scopeFactory = scopeFactory;
+        _client = client;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<DbService>();
+            var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
+            var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
+            var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
+            var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
+            var actions = new UserActions(db, bepusdt, orderChannels, info);
+
+            List<Order> activeOrders;
             try
             {
-                using var scope = _services.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
-
-                var activeOrders = await db.Orders
-                    .Include(o => o.Service)
-                    .Where(o => o.Status == OrderStatus.InProgress || o.Status == OrderStatus.Paid)
-                    .ToListAsync(stoppingToken);
-
-                foreach (var order in activeOrders)
-                {
-                    await ProcessOrderMatchesAsync(db, orderChannels, order);
-                }
+                activeOrders = await db.GetActiveOrdersAsync(stoppingToken);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[TRACKER LOOP ERROR] {ex.Message}");
+                _logger.LogError(ex, "Не удалось получить активные заказы");
+                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                continue;
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+            foreach (var order in activeOrders)
+            {
+                if (stoppingToken.IsCancellationRequested) break;
+                try
+                {
+                    await ProcessOrderAsync(order, db, dota, actions, stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Ошибка обработки заказа #{Id}", order.Id);
+                }
+                await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+            }
+
+            await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
         }
     }
 
-    private async Task ProcessOrderMatchesAsync(AppDbContext db, OrderChannelService orderChannels, Order order)
+    private async Task ProcessOrderAsync(
+        Order order, DbService db, OpenDotaService dota, UserActions actions, CancellationToken ct)
     {
-        if (order.DotaAccountId == 0) return;
+        if (order.Shifts is null || order.Shifts.Count == 0)
+        {
+            _logger.LogInformation("Заказ #{Id}: смен ещё не было, пропуск", order.Id);
+            return;
+        }
 
-        var matches = await _dota.GetRecentMatchesAsync(order.DotaAccountId);
-        var startTime = order.PaidAt ?? order.CreatedAt;
-        var orderStartUnix = new DateTimeOffset(startTime).ToUnixTimeSeconds();
+        if (order.DotaAccountId == 0)
+        {
+            _logger.LogWarning("Заказ #{Id}: не указан BoosterAccountId", order.Id);
+            return;
+        }
 
-        var storedMatches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
-        var processedIds = storedMatches.Select(m => m.MatchId).ToHashSet();
+        var boostStart = order.Shifts.Min(s => s.StartUtc);
+        var matches = await dota.GetRecentMatchesAsync(order.DotaAccountId);
+        if (matches.Count == 0) return;
 
-        var newMatches = matches
-            .Where(m => m.StartTime >= orderStartUnix && !processedIds.Contains(m.MatchId))
-            .OrderBy(m => m.StartTime)
+        var now = DateTime.UtcNow;
+
+        var allWithTime = matches
+            .Select(m => (Match: m, TimeUtc: FromUnix(m.StartTime)))
+            .Where(x => x.TimeUtc >= boostStart)
             .ToList();
 
-        if (!newMatches.Any()) return;
+        if (allWithTime.Count == 0) return;
 
-        var playerInfo = await _dota.GetPlayerInfoAsync(order.DotaAccountId);
-        int? playerMmr = playerInfo?.MmrEstimate?.Estimate;
+        var boosterMatches = allWithTime
+            .Where(x => IsDuringAnyShift(x.TimeUtc, order.Shifts, now))
+            .Select(x => x.Match)
+            .ToList();
 
-        bool orderCompleted = false;
+        var boosterIds = boosterMatches.Select(m => m.MatchId).ToHashSet();
+        var clientMatches = allWithTime
+            .Where(x => !boosterIds.Contains(x.Match.MatchId))
+            .Select(x => x.Match)
+            .ToList();
 
-        foreach (var match in newMatches)
+        var boosterWins = boosterMatches.Count(m => IsWin(m));
+
+        var progress = new OrderProgressInfo
         {
-            DateTime matchTime = DateTimeOffset.FromUnixTimeSeconds(match.StartTime).UtcDateTime;
-            bool isBoosterPlayed = false;
+            OrderId = order.Id,
+            BoosterGames = boosterMatches.Count,
+            BoosterWins = boosterWins,
+            BoosterLosses = boosterMatches.Count - boosterWins,
+            ClientGames = clientMatches.Count,
+            TotalGamesSinceBoost = allWithTime.Count
+        };
 
-            if (order.IsShiftActive && order.ShiftStartedAt.HasValue)
-            {
-                if (matchTime >= order.ShiftStartedAt.Value.AddMinutes(-5))
-                    isBoosterPlayed = true;
-            }
+        // Обновляем поля в Order, чтобы UI (_ShowMyServicesAsync_) показывал актуальное
+        order.BoosterGamesPlayed = progress.BoosterGames;
+        order.OwnerGamesPlayed = progress.ClientGames;
+        if (order.Service?.Type is ServiceType.LP or ServiceType.Behavior)
+            
 
-            bool isRadiant = match.PlayerSlot < 128;
-            bool isWin = (isRadiant && match.RadiantWin) || (!isRadiant && !match.RadiantWin);
+        await db.UpdateOrderAsync(order);
 
-            var details = await _dota.GetMatchDetailsAsync(match.MatchId);
-            int mmrDelta = CalculateMmrDelta(isWin, playerMmr, details?.AvgMmr);
+        // Обновляем сообщение с прогрессом в обеих ветках
+        await SendProgressToThreadAsync(order.ClientThreadId, order, progress, actions);
+        await SendProgressToThreadAsync(order.BoosterThreadId, order, progress, actions);
+    }
 
-            if (isBoosterPlayed) order.BoosterGamesPlayed++;
-            else order.OwnerGamesPlayed++;
+    private async Task SendProgressToThreadAsync(
+        ulong? threadId, Order order, OrderProgressInfo progress, UserActions actions)
+    {
+        if (threadId is null or 0) return;
 
-            if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
-            {
-                order.CurrentMmr += mmrDelta;
-                if (isBoosterPlayed) order.BoosterMmrChange += mmrDelta;
-                else order.OwnerMmrChange += mmrDelta;
-
-                if (order.IsShiftActive && order.CurrentMmr >= order.TargetMmr)
-                {
-                    order.Status = OrderStatus.Completed;
-                    order.IsShiftActive = false;
-                    orderCompleted = true;
-                }
-            }
-            else if (order.Service.Type == ServiceType.LP)
-            {
-                if (order.TotalGamesPlayed >= order.TargetGames)
-                {
-                    order.Status = OrderStatus.Completed;
-                    order.IsShiftActive = false;
-                    orderCompleted = true;
-                }
-            }
-
-            storedMatches.Add(new OrderMatch
-            {
-                MatchId = match.MatchId,
-                StartTime = match.StartTime,
-                IsWin = isWin,
-                IsBooster = isBoosterPlayed,
-                HeroId = match.HeroId,
-                MmrDelta = mmrDelta
-            });
-
-            order.LastProcessedMatchId = match.MatchId;
-            if (orderCompleted) break;
+        if (_client.GetChannel(threadId.Value) is not IMessageChannel channel)
+        {
+            _logger.LogWarning("Заказ #{Id}: ветка {ThreadId} не найдена в кэше", order.Id, threadId);
+            return;
         }
 
-        if (storedMatches.Count > 50)
-            storedMatches = storedMatches.OrderByDescending(m => m.StartTime).Take(50)
-                .OrderBy(m => m.StartTime).ToList();
-
-        order.MatchesJson = JsonSerializer.Serialize(storedMatches);
-
-        await db.SaveChangesAsync();
-        await orderChannels.UpdateThreadsProgressAsync(order);
-
-        if (orderCompleted)
-            Console.WriteLine($"[TRACKER] Заказ {order.Id} ВЫПОЛНЕН! Выплата бустеру: {order.BoosterTotalPayout:F2}₽");
+        await actions.UpdateProgressAsync(channel, order, progress);
     }
 
-    private int CalculateMmrDelta(bool isWin, int? playerMmr, int? avgMmr)
+    private static DateTime FromUnix(long unix) =>
+        DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
+
+    private static bool IsDuringAnyShift(DateTime timeUtc, List<Shift> shifts, DateTime nowUtc)
     {
-        const int baseDelta = 25;
-
-        if (!playerMmr.HasValue || !avgMmr.HasValue)
-            return isWin ? baseDelta : -baseDelta;
-
-        int diff = playerMmr.Value - avgMmr.Value;
-        int adjustment = (int)(diff / 100.0 * 2);
-
-        int delta = baseDelta - adjustment;
-        delta = Math.Clamp(delta, 10, 40);
-
-        return isWin ? delta : -delta;
+        foreach (var s in shifts)
+        {
+            var end = s.EndUtc ?? nowUtc;
+            if (timeUtc >= s.StartUtc && timeUtc <= end) return true;
+        }
+        return false;
     }
+
+    private static bool IsWin(DotaMatchDto m) =>
+        m.PlayerSlot < 128 ? m.RadiantWin : !m.RadiantWin;
 }
