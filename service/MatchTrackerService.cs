@@ -70,7 +70,7 @@ public class MatchTrackerService : BackgroundService
                 await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+            await Task.Delay(TimeSpan.FromMinutes(3), stoppingToken);
         }
     }
 
@@ -129,7 +129,9 @@ public class MatchTrackerService : BackgroundService
                 Kills = m.Kills,
                 Deaths = m.Deaths,
                 Assists = m.Assists,
-                Duration = m.Duration
+                Duration = m.Duration,
+                GameMode = m.GameMode,
+                LobbyType = m.LobbyType
             });
 
             // Проверка завершения (Если есть конкретный ранг или количество игр)

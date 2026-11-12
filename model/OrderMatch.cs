@@ -9,4 +9,8 @@ public class OrderMatch
     public int Deaths { get; set; }
     public int Assists { get; set; }
     public int Duration { get; set; }
+    
+    public int GameMode { get; set; }
+    
+    public int LobbyType { get; set; }
 }

@@ -69,9 +69,7 @@ public class UserActions
 
             await thread.SendMessageAsync(embed: embed, components: builder.Build());
 
-            // Создаём инфо-блок в новой ветке
             await _info.CleanupAndCreateAsync(thread, "Жду действия.", marker: "📌");
-
             await component.FollowupAsync($"Ветка создана! {thread.Mention}", ephemeral: true);
         }
         catch (Exception ex)
@@ -208,8 +206,7 @@ public class UserActions
             var modal = new ModalBuilder()
                 .WithTitle("Ваш Dota 2 Account ID")
                 .WithCustomId($"modal_dota_id_{service.Id}")
-                .AddTextInput("Dota Account ID", "dota_id", placeholder: "Например: 12345678", minLength: 5, maxLength: 12)
-                .AddTextInput("Рейтинг на указанном акаунте", "mmr", placeholder: "вводите строго число, например 4967", minLength: 3, maxLength: 17);
+                .AddTextInput("Dota Account ID", "dota_id", placeholder: "Например: 12345678", minLength: 5, maxLength: 12);
             await component.RespondWithModalAsync(modal.Build());
             return;
         }
@@ -234,7 +231,6 @@ public class UserActions
             await component.RespondWithModalAsync(modal.Build());
             return;
         }
-        
 
         await component.UpdateAsync(m => { });
         await _info.UpdateAsync(component.Channel, "⚠️ Для этой услуги покупка пока не автоматизирована.");
@@ -265,7 +261,7 @@ public class UserActions
             string progressText = order.Service.Type switch
             {
                 ServiceType.Boost or ServiceType.Calibration =>
-                    $"**MMR:** {order.CurrentMmr} / {order.TargetMmr} (дельта +{order.TargetMmrDelta})",
+                    $"**Ранг:** {DotaRankHelper.GetRankName(order.CurrentRankTier, null)}", // Обновили под ранги
                 ServiceType.LP =>
                     $"**Игры LP:** {order.TotalGamesPlayed} / {order.TargetGames}",
                 ServiceType.Behavior =>
@@ -308,16 +304,10 @@ public class UserActions
             return;
         }
 
-        // 1. Обновляем старые поля (для совместимости с UI)
         order.IsShiftActive = true;
         order.ShiftStartedAt = DateTime.UtcNow;
-    
-        if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
-            order.TargetMmr = order.CurrentMmr + order.TargetMmrDelta;
-
         await _db.UpdateOrderAsync(order);
 
-        // 2. СОЗДАЕМ СМЕНУ В БД (это самое главное!)
         var shift = new Shift
         {
             OrderId = order.Id,
@@ -354,101 +344,13 @@ public class UserActions
         await _info.UpdateAsync(component.Channel, $"🛑 Смена по заказу #{order.Id} завершена.");
     }
     
-    public async Task UpdateProgressAsync(IMessageChannel channel, Order order)
-    {
-        try
-        {
-            var embed = await BuildProgressEmbedAsync(order);
-            // Обратите внимание на marker: "📊", чтобы не затирать другие сообщения
-            await _info.UpdateAsync(channel, text: "", embed: embed, marker: "📊");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[PROGRESS EMBED ERROR] {ex.Message}");
-        }
-    }
-     private async Task<Embed> BuildProgressEmbedAsync(Order order)
-    {
-        var heroNames = await _dota.GetHeroNamesAsync();
-        var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
-
-        var embed = new EmbedBuilder()
-            .WithTitle($"📊 Заказ #{order.Id} | {order.Service?.Name ?? "Услуга"}")
-            .WithColor(order.Status == OrderStatus.Completed ? Color.Green : Color.Blue)
-            .WithFooter("Обновляется автоматически")
-            .WithCurrentTimestamp();
-
-        // Блок с рангами
-        if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
-        {
-            string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
-            string targetRank = order.TargetRankTier > 0 
-                ? DotaRankHelper.GetRankName(order.TargetRankTier, null) 
-                : "Не задан";
-
-            embed.AddField("🏆 Ранг",
-                $"**Текущий:** {currentRank}\n" +
-                $"**Цель:** {targetRank}",
-                inline: true);
-        }
-        else
-        {
-            embed.AddField("🎯 Игры",
-                $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}",
-                inline: true);
-        }
-
-        embed.AddField("👥 Игроки",
-            $"🎯 Бустер: **{order.BoosterGamesPlayed}** игр\n" +
-            $"👤 Клиент: **{order.OwnerGamesPlayed}** игр",
-            inline: true);
-
-        // Блок с последними матчами
-        var sb = new StringBuilder();
-        var recentMatches = matches.OrderByDescending(m => m.StartTime).Take(6).ToList();
-
-        if (recentMatches.Count > 0)
-        {
-            foreach (var m in recentMatches)
-            {
-                string result = m.IsWin ? "✅" : "❌";
-                string who = m.IsBooster ? "🎯 Б." : "👤 К.";
-                string hero = heroNames.TryGetValue(m.HeroId, out var name) ? name : $"Герой #{m.HeroId}";
-                int mins = m.Duration / 60;
-
-                sb.AppendLine($"{result} {who} | **{hero}** | `{m.Kills}/{m.Deaths}/{m.Assists}` | {mins} мин");
-            }
-        }
-        else
-        {
-            sb.AppendLine("*Ожидание первого матча...*");
-        }
-
-        embed.AddField("📋 Последние матчи", sb.ToString(), inline: false);
-
-        return embed.Build();
-    }
-    public async Task OpenAddServiceModalAsync(SocketMessageComponent component)
-    {
-        var modal = new ModalBuilder()
-            .WithTitle("Размещение услуги")
-            .WithCustomId("modal_create_service")
-            .AddTextInput("Название услуги", "service_name", placeholder: "Например: Буст MMR", minLength: 3)
-            .AddTextInput("Стоимость (в рублях)", "service_price", placeholder: "Только число: 1500")
-            .AddTextInput("Тип услуги", "service_type", placeholder: "Boost, Calibration, LP или Behavior")
-            .AddTextInput("Диапазон MMR", "mmr_range", placeholder: "Мин-Макс (для буста, иначе 0-0)", required: false)
-            .AddTextInput("Ссылка на Steam профиль", "steam_link", placeholder: "https://steamcommunity.com/id/...");
-
-        await component.RespondWithModalAsync(modal.Build());
-    }
-       public async Task UpdateProgressAsync(IMessageChannel channel, Order order, int page = 0)
+    public async Task UpdateProgressAsync(IMessageChannel channel, Order order, int page = 0)
     {
         try
         {
             var embed = await BuildProgressEmbedAsync(order, page);
             var components = BuildProgressComponents(order, page);
             
-            // Обратите внимание на marker: "📊", чтобы не затирать другие сообщения
             await _info.UpdateAsync(channel, text: "", embed: embed, components: components, marker: "📊");
         }
         catch (Exception ex)
@@ -458,71 +360,99 @@ public class UserActions
     }
 
     private async Task<Embed> BuildProgressEmbedAsync(Order order, int page)
+{
+    var heroNames = await _dota.GetHeroNamesAsync();
+    var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
+    
+    // Сортируем от новых к старым
+    matches = matches.OrderByDescending(m => m.StartTime).ToList();
+
+    int totalPages = (int)Math.Ceiling((double)matches.Count / MatchesPerPage);
+    if (totalPages == 0) totalPages = 1;
+    if (page < 0) page = 0;
+    if (page >= totalPages) page = totalPages - 1;
+
+    var pagedMatches = matches.Skip(page * MatchesPerPage).Take(MatchesPerPage).ToList();
+
+    var embed = new EmbedBuilder()
+        .WithTitle($"Заказ #{order.Id} | {order.Service?.Name ?? "Услуга"}")
+        .WithColor(order.Status == OrderStatus.Completed ? Color.Green : Color.Blue)
+        .WithFooter($"Страница {page + 1} из {totalPages} • Обновляется автоматически")
+        .WithCurrentTimestamp();
+
+    if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
     {
-        var heroNames = await _dota.GetHeroNamesAsync();
-        var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
+        string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
+        embed.AddField("🏆 Ранг", $"**Текущий:** {currentRank}\n", inline: true);
+    }
+    else
+    {
+        embed.AddField("🎯 Игры", $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}", inline: true);
+    }
+
+    embed.AddField("👥 Игроки",
+        $"Бустер: **{order.BoosterGamesPlayed}** игр\n" +
+        $"Клиент: **{order.OwnerGamesPlayed}** игр",
+        inline: true);
+    
+    var sb = new StringBuilder();
+    if (pagedMatches.Count > 0)
+    {
+        var tableData = new List<string[]>();
+        foreach (var m in pagedMatches)
+        {
+            string res = m.IsWin ? "Win " : "Lose"; 
+            string who = m.IsBooster ? "Бустер" : "Клиент";
+            string hero = heroNames.TryGetValue(m.HeroId, out var name) ? name : $"Герой #{m.HeroId}";
+            string kda = $"{m.Kills}/{m.Deaths}/{m.Assists}";
+            string time = $"{m.Duration / 60} мин";
+            string mode = FormatGameMode(m.GameMode, m.LobbyType);
+
+            tableData.Add(new[] { res, who, hero, kda, time, mode });
+        }
+
+        int[] maxWidths = new int[5];
+        for (int i = 0; i < 5; i++)
+        {
+            maxWidths[i] = tableData.Max(row => row[i].Length);
+        }
         
-        // Сортируем от новых к старым
-        matches = matches.OrderByDescending(m => m.StartTime).ToList();
-
-        int totalPages = (int)Math.Ceiling((double)matches.Count / MatchesPerPage);
-        if (totalPages == 0) totalPages = 1;
-        if (page < 0) page = 0;
-        if (page >= totalPages) page = totalPages - 1;
-
-        var pagedMatches = matches.Skip(page * MatchesPerPage).Take(MatchesPerPage).ToList();
-
-        var embed = new EmbedBuilder()
-            .WithTitle($"📊 Заказ #{order.Id} | {order.Service?.Name ?? "Услуга"}")
-            .WithColor(order.Status == OrderStatus.Completed ? Color.Green : Color.Blue)
-            .WithFooter($"Страница {page + 1} из {totalPages} • Обновляется автоматически")
-            .WithCurrentTimestamp();
-        
-        if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
+        sb.AppendLine("```");
+        foreach (var row in tableData)
         {
-            string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
-            string targetRank = order.TargetRankTier > 0 
-                ? DotaRankHelper.GetRankName(order.TargetRankTier, null) 
-                : "Не задан";
-
-            embed.AddField("🏆 Ранг",
-                $"**Текущий:** {currentRank}\n",
-                inline: true);
+            sb.AppendLine($"{row[0].PadRight(maxWidths[0])} | {row[1].PadRight(maxWidths[1])} | {row[2].PadRight(maxWidths[2])} | {row[3].PadRight(maxWidths[3])} | {row[4].PadRight(maxWidths[4])} | {row[5]}");
         }
-        else
+        sb.AppendLine("```");
+    }
+    else
+    {
+        sb.AppendLine("*Ожидание первого матча...*");
+    }
+
+    embed.AddField("📋 История матчей", sb.ToString(), inline: false);
+
+    return embed.Build();
+}
+    
+    private string FormatGameMode(int gameMode, int lobbyType)
+    {
+        string modeStr = gameMode switch
         {
-            embed.AddField("🎯 Игры",
-                $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}",
-                inline: true);
-        }
+            1 => "AllPick",
+            2 => "CM",
+            3 => "RD",
+            4 => "SDraft",
+            5 => "AR",
+            16 => "CD",
+            18 => "AD",
+            22 => "AllPick",
+            23 => "Turbo",
+            _ => $"Mode{gameMode}"
+        };
 
-        embed.AddField("👥 Игроки",
-            $"🎯 Бустер: **{order.BoosterGamesPlayed}** игр\n" +
-            $"👤 Клиент: **{order.OwnerGamesPlayed}** игр",
-            inline: true);
-
-        // Блок с последними матчами (без лишних эмодзи)
-        var sb = new StringBuilder();
-        if (pagedMatches.Count > 0)
-        {
-            foreach (var m in pagedMatches)
-            {
-                string result = m.IsWin ? "🟢" : "🔴"; // Зеленый/красный кружок вместо галочек
-                string who = m.IsBooster ? "Бустер" : "Клиент";
-                string hero = heroNames.TryGetValue(m.HeroId, out var name) ? name : $"Герой #{m.HeroId}";
-                int mins = m.Duration / 60;
-
-                sb.AppendLine($"{result} {who} | **{hero}** | `{m.Kills}/{m.Deaths}/{m.Assists}` | {mins} мин");
-            }
-        }
-        else
-        {
-            sb.AppendLine("*Ожидание первого матча...*");
-        }
-
-        embed.AddField("📋 История матчей", sb.ToString(), inline: false);
-
-        return embed.Build();
+        if (lobbyType == 7) return $"{modeStr} (MM)";
+        if (lobbyType == 0) return modeStr;
+        return modeStr;
     }
 
     private MessageComponent BuildProgressComponents(Order order, int page)
@@ -538,5 +468,19 @@ public class UserActions
         }
 
         return builder.Build();
+    }
+
+    public async Task OpenAddServiceModalAsync(SocketMessageComponent component)
+    {
+        var modal = new ModalBuilder()
+            .WithTitle("Размещение услуги")
+            .WithCustomId("modal_create_service")
+            .AddTextInput("Название услуги", "service_name", placeholder: "Например: Буст MMR", minLength: 3)
+            .AddTextInput("Стоимость (в рублях)", "service_price", placeholder: "Только число: 1500")
+            .AddTextInput("Тип услуги", "service_type", placeholder: "Boost, Calibration, LP или Behavior")
+            .AddTextInput("Диапазон MMR", "mmr_range", placeholder: "Мин-Макс (для буста, иначе 0-0)", required: false)
+            .AddTextInput("Ссылка на Steam профиль", "steam_link", placeholder: "https://steamcommunity.com/id/...");
+
+        await component.RespondWithModalAsync(modal.Build());
     }
 }

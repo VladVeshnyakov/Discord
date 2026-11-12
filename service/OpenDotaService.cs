@@ -122,8 +122,8 @@ public class DotaMatchDto
     [JsonPropertyName("radiant_win")] public bool RadiantWin { get; set; }
     [JsonPropertyName("start_time")] public long StartTime { get; set; }
     [JsonPropertyName("hero_id")] public int HeroId { get; set; }
-    
-    // НОВЫЕ ПОЛЯ:
+    [JsonPropertyName("game_mode")] public int GameMode { get; set; }
+    [JsonPropertyName("lobby_type")] public int LobbyType { get; set; }
     [JsonPropertyName("kills")] public int Kills { get; set; }
     [JsonPropertyName("deaths")] public int Deaths { get; set; }
     [JsonPropertyName("assists")] public int Assists { get; set; }
