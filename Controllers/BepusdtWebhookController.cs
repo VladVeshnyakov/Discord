@@ -48,21 +48,24 @@ public class BepusdtWebhookController : ControllerBase
 
         try
         {
+            // Если пришел JSON (от реального BEpusdt)
             if (Request.ContentType?.Contains("application/json") == true)
             {
                 using var doc = await JsonDocument.ParseAsync(Request.Body);
                 var root = doc.RootElement;
+                
                 notify = new BepusdtNotify
                 {
-                    trade_id = root.TryGetProperty("trade_id", out var trade) ? trade.ToString() : "",
-                    order_id = root.TryGetProperty("order_id", out var order) ? order.ToString() : "",
-                    amount = root.TryGetProperty("amount", out var amount) ? amount.ToString() : "",
-                    actual_amount = root.TryGetProperty("actual_amount", out var actual) ? actual.ToString() : "",
-                    token = root.TryGetProperty("token", out var token) ? token.ToString() : "",
-                    block_transaction_id = root.TryGetProperty("block_transaction_id", out var block) ? block.ToString() : "",
-                    signature = root.TryGetProperty("signature", out var sig) ? sig.ToString() : "",
-                    status = root.TryGetProperty("status", out var status) && status.ValueKind == JsonValueKind.Number
-                        ? status.GetInt32() : 0
+                    trade_id = root.TryGetProperty("trade_id", out var tradeProp) ? tradeProp.ToString() : "",
+                    order_id = root.TryGetProperty("order_id", out var orderProp) ? orderProp.ToString() : "", // <-- Исправили на orderProp
+                    amount = root.TryGetProperty("amount", out var amountProp) ? amountProp.ToString() : "",
+                    actual_amount = root.TryGetProperty("actual_amount", out var actualProp) ? actualProp.ToString() : "",
+                    token = root.TryGetProperty("token", out var tokenProp) ? tokenProp.ToString() : "",
+                    block_transaction_id = root.TryGetProperty("block_transaction_id", out var blockProp) ? blockProp.ToString() : "",
+                    signature = root.TryGetProperty("signature", out var sigProp) ? sigProp.ToString() : "",
+                    status = root.TryGetProperty("status", out var statusProp) && statusProp.ValueKind == JsonValueKind.Number 
+                        ? statusProp.GetInt32() 
+                        : 0
                 };
             }
             else

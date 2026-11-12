@@ -4,6 +4,7 @@ using DiscordBirge;
 using DiscordBirge.Data;
 using DiscordBirge.Helpers;
 using DiscordBirge.Services;
+using DiscordBirge.Workers;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,6 +22,7 @@ builder.Services.AddSingleton(new DiscordSocketClient(new DiscordSocketConfig
 builder.Services.AddScoped<DbService>();
 builder.Services.AddHttpClient<BepusdtService>();
 builder.Services.AddScoped<OrderChannelService>();
+builder.Services.AddHostedService<MatchTrackerService>();
 builder.Services.AddHttpClient<OpenDotaService>();
 builder.Services.AddSingleton<InfoMessageService>();
 builder.Services.AddDbContext<AppDbContext>(options =>
