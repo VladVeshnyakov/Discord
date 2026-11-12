@@ -387,7 +387,7 @@ public class UserActions
     }
     else
     {
-        embed.AddField("🎯 Игры", $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}", inline: true);
+        embed.AddField("Игры", $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}", inline: true);
     }
 
     embed.AddField("👥 Игроки",
@@ -429,7 +429,7 @@ public class UserActions
         sb.AppendLine("*Ожидание первого матча...*");
     }
 
-    embed.AddField("📋 История матчей", sb.ToString(), inline: false);
+    embed.AddField("История матчей", sb.ToString(), inline: false);
 
     return embed.Build();
 }
@@ -438,19 +438,19 @@ public class UserActions
     {
         string modeStr = gameMode switch
         {
-            1 => "AllPick",
-            2 => "CM",
-            3 => "RD",
-            4 => "SDraft",
-            5 => "AR",
-            16 => "CD",
-            18 => "AD",
-            22 => "AllPick",
+            1 => "A.P",
+            2 => "C.M",
+            3 => "R.D",
+            4 => "S.D",
+            5 => "A.R",
+            16 => "C.D",
+            18 => "A.D",
+            22 => "A.P",
             23 => "Turbo",
             _ => $"Mode{gameMode}"
         };
 
-        if (lobbyType == 7) return $"{modeStr} (MM)";
+        if (lobbyType == 7) return $"{modeStr}  MM";
         if (lobbyType == 0) return modeStr;
         return modeStr;
     }
@@ -463,8 +463,8 @@ public class UserActions
 
         if (totalPages > 1)
         {
-            builder.WithButton("◀ Назад", $"progress_page_{order.Id}_{page - 1}", ButtonStyle.Secondary, row: 1, disabled: page <= 0)
-                   .WithButton("Вперед ▶", $"progress_page_{order.Id}_{page + 1}", ButtonStyle.Secondary, row: 1, disabled: page >= totalPages - 1);
+            builder.WithButton("◀ Назад", $"progress_page_{order.Id}_{page - 1}", ButtonStyle.Secondary, disabled: page <= 0)
+                   .WithButton("Вперед ▶", $"progress_page_{order.Id}_{page + 1}", ButtonStyle.Secondary, disabled: page >= totalPages - 1);
         }
 
         return builder.Build();
