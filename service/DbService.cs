@@ -70,6 +70,26 @@ public class DbService
         await _db.SaveChangesAsync();
         return order;
     }
+    // Добавить смену
+    public async Task AddShiftAsync(Shift shift)
+    {
+        _db.Shifts.Add(shift);
+        await _db.SaveChangesAsync();
+    }
+
+// Найти активную смену (где EndUtc = null)
+    public async Task<Shift?> GetActiveShiftAsync(int orderId)
+    {
+        return await _db.Shifts
+            .FirstOrDefaultAsync(s => s.OrderId == orderId && s.EndUtc == null);
+    }
+
+// Обновить смену
+    public async Task UpdateShiftAsync(Shift shift)
+    {
+        _db.Shifts.Update(shift);
+        await _db.SaveChangesAsync();
+    }
 
     public async Task<Order?> GetOrderByCustomIdAsync(string customId)
     {

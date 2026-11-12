@@ -303,13 +303,25 @@ public class UserActions
             return;
         }
 
+        // 1. Обновляем старые поля (для совместимости с UI)
         order.IsShiftActive = true;
         order.ShiftStartedAt = DateTime.UtcNow;
-
+    
         if (order.Service.Type == ServiceType.Boost || order.Service.Type == ServiceType.Calibration)
             order.TargetMmr = order.CurrentMmr + order.TargetMmrDelta;
 
         await _db.UpdateOrderAsync(order);
+
+        // 2. СОЗДАЕМ СМЕНУ В БД (это самое главное!)
+        var shift = new Shift
+        {
+            OrderId = order.Id,
+            StartUtc = DateTime.UtcNow,
+            EndUtc = null,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+    
+        await _db.AddShiftAsync(shift);
 
         await _info.UpdateAsync(component.Channel, $"✅ Смена по заказу #{order.Id} начата.");
     }
@@ -331,8 +343,17 @@ public class UserActions
             return;
         }
 
+        // 1. Обновляем старые поля
         order.IsShiftActive = false;
         await _db.UpdateOrderAsync(order);
+
+        // 2. ЗАКРЫВАЕМ АКТИВНУЮ СМЕНУ В БД
+        var activeShift = await _db.GetActiveShiftAsync(orderId);
+        if (activeShift != null)
+        {
+            activeShift.EndUtc = DateTime.UtcNow;
+            await _db.UpdateShiftAsync(activeShift);
+        }
 
         await _info.UpdateAsync(component.Channel, $"🛑 Смена по заказу #{order.Id} завершена.");
     }
