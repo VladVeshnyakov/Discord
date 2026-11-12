@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DiscordBirge.Actions;
 using DiscordBirge.Helpers;
 using DiscordBirge.Models;
+using DiscordBirge.Data; // <-- Добавили для DbService
 
 namespace DiscordBirge.Handlers;
 
@@ -12,11 +13,14 @@ public class ButtonHandlers
 {
     private readonly UserActions _actions;
     private readonly InfoMessageService _info;
+    private readonly DbService _db; // <-- Добавили поле
 
-    public ButtonHandlers(UserActions actions, InfoMessageService info)
+    // <-- Обновили конструктор
+    public ButtonHandlers(UserActions actions, InfoMessageService info, DbService db)
     {
         _actions = actions;
         _info = info;
+        _db = db; 
     }
 
     public async Task HandleSelectMenuAsync(SocketMessageComponent component)
@@ -43,6 +47,23 @@ public class ButtonHandlers
 
     public async Task HandleButtonAsync(SocketMessageComponent component)
     {
+        var customId = component.Data.CustomId;
+        
+        if (customId.StartsWith("progress_page_"))
+        {
+            var parts = customId.Split('_');
+            if (parts.Length == 4 && int.TryParse(parts[2], out int orderId) && int.TryParse(parts[3], out int page))
+            {
+                await component.DeferAsync();
+                var order = await _db.GetOrderByIdAsync(orderId); // Теперь _db доступен
+                if (order != null)
+                {
+                    await _actions.UpdateProgressAsync(component.Message.Channel, order, page);
+                }
+                return;
+            }
+        }
+        
         var id = component.Data.CustomId;
 
         if (id.StartsWith("page_"))

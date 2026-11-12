@@ -38,7 +38,7 @@ public class BotService
             var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
 
             var actions = new UserActions(db, bepusdt, orderChannels, info, dota);
-            var handlers = new ButtonHandlers(actions, info);
+            var handlers = new ButtonHandlers(actions, info, db); // <-- Добавили db
             await handlers.HandleButtonAsync(component);
         };
 
@@ -52,7 +52,7 @@ public class BotService
             var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
 
             var actions = new UserActions(db, bepusdt, orderChannels, info, dota); 
-            var handlers = new ButtonHandlers(actions, info);
+            var handlers = new ButtonHandlers(actions, info, db);
             await handlers.HandleSelectMenuAsync(component);
         };
 

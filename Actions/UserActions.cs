@@ -21,6 +21,7 @@ public class UserActions
     private readonly InfoMessageService _info;
     private readonly OpenDotaService _dota;
     private const int ServicesPerPage = 5;
+    private const int MatchesPerPage = 5;
 
     private static readonly Dictionary<ulong, int> _userSelections = new();
 
@@ -439,5 +440,103 @@ public class UserActions
             .AddTextInput("Ссылка на Steam профиль", "steam_link", placeholder: "https://steamcommunity.com/id/...");
 
         await component.RespondWithModalAsync(modal.Build());
+    }
+       public async Task UpdateProgressAsync(IMessageChannel channel, Order order, int page = 0)
+    {
+        try
+        {
+            var embed = await BuildProgressEmbedAsync(order, page);
+            var components = BuildProgressComponents(order, page);
+            
+            // Обратите внимание на marker: "📊", чтобы не затирать другие сообщения
+            await _info.UpdateAsync(channel, text: "", embed: embed, components: components, marker: "📊");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PROGRESS EMBED ERROR] {ex.Message}");
+        }
+    }
+
+    private async Task<Embed> BuildProgressEmbedAsync(Order order, int page)
+    {
+        var heroNames = await _dota.GetHeroNamesAsync();
+        var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
+        
+        // Сортируем от новых к старым
+        matches = matches.OrderByDescending(m => m.StartTime).ToList();
+
+        int totalPages = (int)Math.Ceiling((double)matches.Count / MatchesPerPage);
+        if (totalPages == 0) totalPages = 1;
+        if (page < 0) page = 0;
+        if (page >= totalPages) page = totalPages - 1;
+
+        var pagedMatches = matches.Skip(page * MatchesPerPage).Take(MatchesPerPage).ToList();
+
+        var embed = new EmbedBuilder()
+            .WithTitle($"📊 Заказ #{order.Id} | {order.Service?.Name ?? "Услуга"}")
+            .WithColor(order.Status == OrderStatus.Completed ? Color.Green : Color.Blue)
+            .WithFooter($"Страница {page + 1} из {totalPages} • Обновляется автоматически")
+            .WithCurrentTimestamp();
+        
+        if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
+        {
+            string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
+            string targetRank = order.TargetRankTier > 0 
+                ? DotaRankHelper.GetRankName(order.TargetRankTier, null) 
+                : "Не задан";
+
+            embed.AddField("🏆 Ранг",
+                $"**Текущий:** {currentRank}\n",
+                inline: true);
+        }
+        else
+        {
+            embed.AddField("🎯 Игры",
+                $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}",
+                inline: true);
+        }
+
+        embed.AddField("👥 Игроки",
+            $"🎯 Бустер: **{order.BoosterGamesPlayed}** игр\n" +
+            $"👤 Клиент: **{order.OwnerGamesPlayed}** игр",
+            inline: true);
+
+        // Блок с последними матчами (без лишних эмодзи)
+        var sb = new StringBuilder();
+        if (pagedMatches.Count > 0)
+        {
+            foreach (var m in pagedMatches)
+            {
+                string result = m.IsWin ? "🟢" : "🔴"; // Зеленый/красный кружок вместо галочек
+                string who = m.IsBooster ? "Бустер" : "Клиент";
+                string hero = heroNames.TryGetValue(m.HeroId, out var name) ? name : $"Герой #{m.HeroId}";
+                int mins = m.Duration / 60;
+
+                sb.AppendLine($"{result} {who} | **{hero}** | `{m.Kills}/{m.Deaths}/{m.Assists}` | {mins} мин");
+            }
+        }
+        else
+        {
+            sb.AppendLine("*Ожидание первого матча...*");
+        }
+
+        embed.AddField("📋 История матчей", sb.ToString(), inline: false);
+
+        return embed.Build();
+    }
+
+    private MessageComponent BuildProgressComponents(Order order, int page)
+    {
+        var builder = new ComponentBuilder();
+        var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
+        int totalPages = (int)Math.Ceiling((double)matches.Count / MatchesPerPage);
+
+        if (totalPages > 1)
+        {
+            builder.WithButton("◀ Назад", $"progress_page_{order.Id}_{page - 1}", ButtonStyle.Secondary, row: 1, disabled: page <= 0)
+                   .WithButton("Вперед ▶", $"progress_page_{order.Id}_{page + 1}", ButtonStyle.Secondary, row: 1, disabled: page >= totalPages - 1);
+        }
+
+        return builder.Build();
     }
 }

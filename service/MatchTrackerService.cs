@@ -152,15 +152,13 @@ public class MatchTrackerService : BackgroundService
                 }
             }
         }
-
-        // Ограничиваем историю последними 15 матчами, чтобы не разбухала БД
+        
         if (storedMatches.Count > 15)
             storedMatches = storedMatches.OrderByDescending(m => m.StartTime).Take(15).ToList();
 
         order.MatchesJson = JsonSerializer.Serialize(storedMatches);
         await db.UpdateOrderAsync(order);
-
-        // Обновляем сообщения в ветках
+        
         await SendProgressToThreadAsync(order.ClientThreadId, order, actions);
         await SendProgressToThreadAsync(order.BoosterThreadId, order, actions);
 
@@ -173,7 +171,7 @@ public class MatchTrackerService : BackgroundService
         if (threadId is null or 0) return;
         if (_client.GetChannel(threadId.Value) is not IMessageChannel channel) return;
         
-        await actions.UpdateProgressAsync(channel, order);
+        await actions.UpdateProgressAsync(channel, order, page: 0);
     }
 
     private static DateTime FromUnix(long unix) => DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
