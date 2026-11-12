@@ -32,6 +32,9 @@ public class Order
     public int CurrentMmr { get; set; }     
     public int BoosterMmrChange { get; set; } = 0; 
     public int OwnerMmrChange { get; set; } = 0;
+    public int StartRankTier { get; set; }
+    public int TargetRankTier { get; set; }
+    public int CurrentRankTier { get; set; }
 
     // --- ИГРЫ (для LP) ---
     public int TargetGames { get; set; } = 0; 

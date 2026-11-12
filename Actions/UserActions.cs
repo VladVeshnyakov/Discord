@@ -7,6 +7,8 @@ using DiscordBirge.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace DiscordBirge.Actions;
@@ -17,16 +19,18 @@ public class UserActions
     private readonly BepusdtService _bepusdt;
     private readonly OrderChannelService _orderChannels;
     private readonly InfoMessageService _info;
+    private readonly OpenDotaService _dota;
     private const int ServicesPerPage = 5;
 
     private static readonly Dictionary<ulong, int> _userSelections = new();
 
-    public UserActions(DbService db, BepusdtService bepusdt, OrderChannelService orderChannels, InfoMessageService info)
+    public UserActions(DbService db, BepusdtService bepusdt, OrderChannelService orderChannels, InfoMessageService info, OpenDotaService dota)
     {
         _db = db;
         _bepusdt = bepusdt;
         _orderChannels = orderChannels;
         _info = info;
+        _dota = dota;
     }
 
     public void SaveUserSelection(ulong userId, int serviceId)
@@ -343,25 +347,18 @@ public class UserActions
             return;
         }
 
-        // 1. Обновляем старые поля
         order.IsShiftActive = false;
         await _db.UpdateOrderAsync(order);
 
-        // 2. ЗАКРЫВАЕМ АКТИВНУЮ СМЕНУ В БД
-        var activeShift = await _db.GetActiveShiftAsync(orderId);
-        if (activeShift != null)
-        {
-            activeShift.EndUtc = DateTime.UtcNow;
-            await _db.UpdateShiftAsync(activeShift);
-        }
-
         await _info.UpdateAsync(component.Channel, $"🛑 Смена по заказу #{order.Id} завершена.");
     }
-    public async Task UpdateProgressAsync(IMessageChannel channel, Order order, OrderProgressInfo progress)
+    
+    public async Task UpdateProgressAsync(IMessageChannel channel, Order order)
     {
         try
         {
-            var embed = BuildProgressEmbed(order, progress);
+            var embed = await BuildProgressEmbedAsync(order);
+            // Обратите внимание на marker: "📊", чтобы не затирать другие сообщения
             await _info.UpdateAsync(channel, text: "", embed: embed, marker: "📊");
         }
         catch (Exception ex)
@@ -369,52 +366,67 @@ public class UserActions
             Console.WriteLine($"[PROGRESS EMBED ERROR] {ex.Message}");
         }
     }
-
-    private Embed BuildProgressEmbed(Order order, OrderProgressInfo progress)
+     private async Task<Embed> BuildProgressEmbedAsync(Order order)
     {
+        var heroNames = await _dota.GetHeroNamesAsync();
+        var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
+
         var embed = new EmbedBuilder()
-            .WithTitle($"📊 Прогресс по заказу #{order.Id}")
-            .WithColor(progress.BoosterWins >= progress.BoosterLosses ? Color.Green : Color.Orange)
+            .WithTitle($"📊 Заказ #{order.Id} | {order.Service?.Name ?? "Услуга"}")
+            .WithColor(order.Status == OrderStatus.Completed ? Color.Green : Color.Blue)
             .WithFooter("Обновляется автоматически")
             .WithCurrentTimestamp();
 
-        embed.AddField("🎮 Бустер",
-            $"**{progress.BoosterGames}** игр · **{progress.BoosterWins}W** / {progress.BoosterLosses}L\n" +
-            $"Винрейт: **{progress.BoosterWinrate:F1}%**",
-            inline: true);
-
-        embed.AddField("👤 Клиент",
-            $"**{progress.ClientGames}** игр",
-            inline: true);
-
-        embed.AddField("📈 После старта буста",
-            $"Всего: **{progress.TotalGamesSinceBoost}** игр",
-            inline: true);
-
-        switch (order.Service?.Type)
+        // Блок с рангами
+        if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
         {
-            case ServiceType.Boost:
-            case ServiceType.Calibration:
-                embed.AddField("🎯 MMR",
-                    $"Сейчас: **{order.CurrentMmr}**\n" +
-                    $"Цель: **{order.TargetMmr}** (Δ {order.TargetMmrDelta:+0;-#})",
-                    inline: false);
-                break;
-            case ServiceType.LP:
-                embed.AddField("🎯 Игры LP",
-                    $"Сыграно: **{progress.BoosterGames}** / {order.TargetGames}",
-                    inline: false);
-                break;
-            case ServiceType.Behavior:
-                embed.AddField("🎯 Порядочность",
-                    $"Сыграно игр: **{progress.BoosterGames}**",
-                    inline: false);
-                break;
+            string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
+            string targetRank = order.TargetRankTier > 0 
+                ? DotaRankHelper.GetRankName(order.TargetRankTier, null) 
+                : "Не задан";
+
+            embed.AddField("🏆 Ранг",
+                $"**Текущий:** {currentRank}\n" +
+                $"**Цель:** {targetRank}",
+                inline: true);
         }
+        else
+        {
+            embed.AddField("🎯 Игры",
+                $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}",
+                inline: true);
+        }
+
+        embed.AddField("👥 Игроки",
+            $"🎯 Бустер: **{order.BoosterGamesPlayed}** игр\n" +
+            $"👤 Клиент: **{order.OwnerGamesPlayed}** игр",
+            inline: true);
+
+        // Блок с последними матчами
+        var sb = new StringBuilder();
+        var recentMatches = matches.OrderByDescending(m => m.StartTime).Take(6).ToList();
+
+        if (recentMatches.Count > 0)
+        {
+            foreach (var m in recentMatches)
+            {
+                string result = m.IsWin ? "✅" : "❌";
+                string who = m.IsBooster ? "🎯 Б." : "👤 К.";
+                string hero = heroNames.TryGetValue(m.HeroId, out var name) ? name : $"Герой #{m.HeroId}";
+                int mins = m.Duration / 60;
+
+                sb.AppendLine($"{result} {who} | **{hero}** | `{m.Kills}/{m.Deaths}/{m.Assists}` | {mins} мин");
+            }
+        }
+        else
+        {
+            sb.AppendLine("*Ожидание первого матча...*");
+        }
+
+        embed.AddField("📋 Последние матчи", sb.ToString(), inline: false);
 
         return embed.Build();
     }
-
     public async Task OpenAddServiceModalAsync(SocketMessageComponent component)
     {
         var modal = new ModalBuilder()

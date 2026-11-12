@@ -35,7 +35,9 @@ public class BotService
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
             var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
-            var actions = new UserActions(db, bepusdt, orderChannels, info);
+            var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
+
+            var actions = new UserActions(db, bepusdt, orderChannels, info, dota);
             var handlers = new ButtonHandlers(actions, info);
             await handlers.HandleButtonAsync(component);
         };
@@ -47,7 +49,9 @@ public class BotService
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
             var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
-            var actions = new UserActions(db, bepusdt, orderChannels, info);
+            var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
+
+            var actions = new UserActions(db, bepusdt, orderChannels, info, dota); 
             var handlers = new ButtonHandlers(actions, info);
             await handlers.HandleSelectMenuAsync(component);
         };
@@ -86,7 +90,6 @@ public class BotService
 
         if (_client.GetChannel(mainChannelId) is ITextChannel textChannel)
         {
-            // 1. Главное меню с кнопкой
             var messages = await textChannel.GetMessagesAsync(50).FlattenAsync();
             var botMessage = messages
                 .OfType<IUserMessage>()
@@ -117,15 +120,13 @@ public class BotService
                 await textChannel.SendMessageAsync(embed: embed, components: builder.Build());
                 Console.WriteLine("[READY] Главное меню отправлено.");
             }
-
-            // 2. Чистим и создаём инфо-сообщения во всех активных ветках
+            
             var activeThreads = await textChannel.GetActiveThreadsAsync();
             foreach (var thread in activeThreads)
             {
                 await info.CleanupAndCreateAsync(thread, "Жду действия.", marker: "📌");
             }
-
-            // 3. Чистим и создаём в основном канале
+            
             await info.CleanupAndCreateAsync(textChannel, "Добро пожаловать! Выберите действие.", marker: "📌");
         }
         else

@@ -1,13 +1,14 @@
-using Discord;
 using Discord.WebSocket;
-using DiscordBirge.Actions;
 using DiscordBirge.Data;
-using DiscordBirge.Helpers;
 using DiscordBirge.Models;
-using DiscordBirge.Services;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using Discord;
+using DiscordBirge.Helpers;
+using DiscordBirge.Services;
 
 namespace DiscordBirge.Workers;
 
@@ -36,10 +37,12 @@ public class MatchTrackerService : BackgroundService
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
             var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
+            
+            // Получаем UserActions
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
             var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
-            var actions = new UserActions(db, bepusdt, orderChannels, info);
+            var actions = new DiscordBirge.Actions.UserActions(db, bepusdt, orderChannels, info, dota);
 
             List<Order> activeOrders;
             try
@@ -67,90 +70,113 @@ public class MatchTrackerService : BackgroundService
                 await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
         }
     }
 
-    private async Task ProcessOrderAsync(
-        Order order, DbService db, OpenDotaService dota, UserActions actions, CancellationToken ct)
+    private async Task ProcessOrderAsync(Order order, DbService db, OpenDotaService dota, DiscordBirge.Actions.UserActions actions, CancellationToken ct)
     {
-        if (order.Shifts is null || order.Shifts.Count == 0)
-        {
-            _logger.LogInformation("Заказ #{Id}: смен ещё не было, пропуск", order.Id);
-            return;
-        }
-
-        if (order.DotaAccountId == 0)
-        {
-            _logger.LogWarning("Заказ #{Id}: не указан BoosterAccountId", order.Id);
-            return;
-        }
+        if (order.Shifts == null || order.Shifts.Count == 0) return;
+        if (order.DotaAccountId == 0) return;
 
         var boostStart = order.Shifts.Min(s => s.StartUtc);
         var matches = await dota.GetRecentMatchesAsync(order.DotaAccountId);
         if (matches.Count == 0) return;
 
-        var now = DateTime.UtcNow;
+        // 1. Обновляем текущий ранг игрока
+        var playerInfo = await dota.GetPlayerInfoAsync(order.DotaAccountId);
+        if (playerInfo?.RankTier != null && order.CurrentRankTier != playerInfo.RankTier.Value)
+        {
+            order.CurrentRankTier = playerInfo.RankTier.Value;
+            await db.UpdateOrderAsync(order);
+        }
 
+        var now = DateTime.UtcNow;
+        
+        // Загружаем уже обработанные матчи из БД
+        var storedMatches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
+        var processedIds = storedMatches.Select(m => m.MatchId).ToHashSet();
+
+        // Находим новые матчи
         var allWithTime = matches
             .Select(m => (Match: m, TimeUtc: FromUnix(m.StartTime)))
-            .Where(x => x.TimeUtc >= boostStart)
+            .Where(x => x.TimeUtc >= boostStart && !processedIds.Contains(x.Match.MatchId))
+            .OrderBy(x => x.TimeUtc)
             .ToList();
 
         if (allWithTime.Count == 0) return;
 
-        var boosterMatches = allWithTime
-            .Where(x => IsDuringAnyShift(x.TimeUtc, order.Shifts, now))
-            .Select(x => x.Match)
-            .ToList();
+        bool orderCompleted = false;
 
-        var boosterIds = boosterMatches.Select(m => m.MatchId).ToHashSet();
-        var clientMatches = allWithTime
-            .Where(x => !boosterIds.Contains(x.Match.MatchId))
-            .Select(x => x.Match)
-            .ToList();
-
-        var boosterWins = boosterMatches.Count(m => IsWin(m));
-
-        var progress = new OrderProgressInfo
+        foreach (var item in allWithTime)
         {
-            OrderId = order.Id,
-            BoosterGames = boosterMatches.Count,
-            BoosterWins = boosterWins,
-            BoosterLosses = boosterMatches.Count - boosterWins,
-            ClientGames = clientMatches.Count,
-            TotalGamesSinceBoost = allWithTime.Count
-        };
+            var m = item.Match;
+            bool isBooster = IsDuringAnyShift(item.TimeUtc, order.Shifts, now);
+            bool isRadiant = m.PlayerSlot < 128;
+            bool isWin = (isRadiant && m.RadiantWin) || (!isRadiant && !m.RadiantWin);
 
-        // Обновляем поля в Order, чтобы UI (_ShowMyServicesAsync_) показывал актуальное
-        order.BoosterGamesPlayed = progress.BoosterGames;
-        order.OwnerGamesPlayed = progress.ClientGames;
-        if (order.Service?.Type is ServiceType.LP or ServiceType.Behavior)
-            
+            if (isBooster) order.BoosterGamesPlayed++;
+            else order.OwnerGamesPlayed++;
 
-        await db.UpdateOrderAsync(order);
+            // Добавляем в историю
+            storedMatches.Add(new OrderMatch
+            {
+                MatchId = m.MatchId,
+                StartTime = m.StartTime,
+                IsWin = isWin,
+                IsBooster = isBooster,
+                HeroId = m.HeroId,
+                Kills = m.Kills,
+                Deaths = m.Deaths,
+                Assists = m.Assists,
+                Duration = m.Duration
+            });
 
-        // Обновляем сообщение с прогрессом в обеих ветках
-        await SendProgressToThreadAsync(order.ClientThreadId, order, progress, actions);
-        await SendProgressToThreadAsync(order.BoosterThreadId, order, progress, actions);
-    }
-
-    private async Task SendProgressToThreadAsync(
-        ulong? threadId, Order order, OrderProgressInfo progress, UserActions actions)
-    {
-        if (threadId is null or 0) return;
-
-        if (_client.GetChannel(threadId.Value) is not IMessageChannel channel)
-        {
-            _logger.LogWarning("Заказ #{Id}: ветка {ThreadId} не найдена в кэше", order.Id, threadId);
-            return;
+            // Проверка завершения (Если есть конкретный ранг или количество игр)
+            if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
+            {
+                if (order.TargetRankTier > 0 && order.CurrentRankTier >= order.TargetRankTier)
+                {
+                    order.Status = OrderStatus.Completed;
+                    order.IsShiftActive = false;
+                    orderCompleted = true;
+                }
+            }
+            else if (order.Service?.Type == ServiceType.LP || order.Service?.Type == ServiceType.Behavior)
+            {
+                if (order.TotalGamesPlayed >= order.TargetGames)
+                {
+                    order.Status = OrderStatus.Completed;
+                    order.IsShiftActive = false;
+                    orderCompleted = true;
+                }
+            }
         }
 
-        await actions.UpdateProgressAsync(channel, order, progress);
+        // Ограничиваем историю последними 15 матчами, чтобы не разбухала БД
+        if (storedMatches.Count > 15)
+            storedMatches = storedMatches.OrderByDescending(m => m.StartTime).Take(15).ToList();
+
+        order.MatchesJson = JsonSerializer.Serialize(storedMatches);
+        await db.UpdateOrderAsync(order);
+
+        // Обновляем сообщения в ветках
+        await SendProgressToThreadAsync(order.ClientThreadId, order, actions);
+        await SendProgressToThreadAsync(order.BoosterThreadId, order, actions);
+
+        if (orderCompleted)
+            Console.WriteLine($"[TRACKER] Заказ {order.Id} ВЫПОЛНЕН!");
     }
 
-    private static DateTime FromUnix(long unix) =>
-        DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
+    private async Task SendProgressToThreadAsync(ulong? threadId, Order order, DiscordBirge.Actions.UserActions actions)
+    {
+        if (threadId is null or 0) return;
+        if (_client.GetChannel(threadId.Value) is not IMessageChannel channel) return;
+        
+        await actions.UpdateProgressAsync(channel, order);
+    }
+
+    private static DateTime FromUnix(long unix) => DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
 
     private static bool IsDuringAnyShift(DateTime timeUtc, List<Shift> shifts, DateTime nowUtc)
     {
@@ -161,7 +187,4 @@ public class MatchTrackerService : BackgroundService
         }
         return false;
     }
-
-    private static bool IsWin(DotaMatchDto m) =>
-        m.PlayerSlot < 128 ? m.RadiantWin : !m.RadiantWin;
 }

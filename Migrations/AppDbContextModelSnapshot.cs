@@ -65,6 +65,9 @@ namespace DiscordBirge.Migrations
                     b.Property<int>("CurrentMmr")
                         .HasColumnType("integer");
 
+                    b.Property<int>("CurrentRankTier")
+                        .HasColumnType("integer");
+
                     b.Property<long>("DotaAccountId")
                         .HasColumnType("bigint");
 
@@ -100,6 +103,9 @@ namespace DiscordBirge.Migrations
                     b.Property<int>("StartMmr")
                         .HasColumnType("integer");
 
+                    b.Property<int>("StartRankTier")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -110,6 +116,9 @@ namespace DiscordBirge.Migrations
                         .HasColumnType("integer");
 
                     b.Property<int>("TargetMmrDelta")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TargetRankTier")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
