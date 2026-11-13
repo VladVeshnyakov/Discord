@@ -17,13 +17,13 @@ public class InfoMessageService
         _client = client;
     }
 
-    // --- НОВЫЙ МЕТОД ДЛЯ ОЧИСТКИ ПРИ СТАРТЕ ---
     public async Task HardResetMarkersAsync(IMessageChannel channel, params string[] markers)
     {
         if (markers == null || markers.Length == 0) return;
 
         try
         {
+            // Берем последние 100 сообщений (Discord API не дает больше за раз)
             var messages = await channel.GetMessagesAsync(100).FlattenAsync();
             foreach (var msg in messages)
             {
@@ -31,7 +31,15 @@ public class InfoMessageService
                     userMsg.Author.Id == _client.CurrentUser.Id &&
                     markers.Any(m => userMsg.Content?.StartsWith(m) == true))
                 {
-                    try { await userMsg.DeleteAsync(); } catch { }
+                    try 
+                    { 
+                        await userMsg.DeleteAsync(); 
+                        Console.WriteLine($"[CLEANUP] Удалено сообщение {userMsg.Id} в канале {channel.Id}");
+                    } 
+                    catch (Exception ex) 
+                    { 
+                        Console.WriteLine($"[CLEANUP ERROR] Не удалось удалить {userMsg.Id}: {ex.Message}"); 
+                    }
                 }
             }
         }
@@ -61,7 +69,6 @@ public class InfoMessageService
         ulong? msgId = null;
         string markerFound = null;
         
-        // Ищем только в оперативной памяти
         foreach (var marker in markers)
         {
             if (_messages.TryGetValue((channel.Id, marker), out ulong id))
@@ -92,7 +99,6 @@ public class InfoMessageService
             _messages.TryRemove((channel.Id, markerFound), out _);
         }
         
-        // Если в памяти нет, создаем новое
         await CreateAsync(channel, text, embed, components, markers[0]);
     }
 

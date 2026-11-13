@@ -81,57 +81,66 @@ public class BotService
         return Task.CompletedTask;
     }
 
-    private async Task ReadyAsync()
+   private async Task ReadyAsync()
+{
+    Console.WriteLine($"Бот {_client.CurrentUser.Username} подключен!");
+
+    var info = _services.GetRequiredService<InfoMessageService>();
+    ulong mainChannelId = 1568654498723930284;
+
+    if (_client.GetChannel(mainChannelId) is ITextChannel textChannel)
     {
-        Console.WriteLine($"Бот {_client.CurrentUser.Username} подключен!");
+        // 1. Обновляем главное меню (как было)
+        var messages = await textChannel.GetMessagesAsync(50).FlattenAsync();
+        var botMessage = messages
+            .OfType<IUserMessage>()
+            .FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id &&
+                                 m.Components != null &&
+                                 m.Components.OfType<ActionRowComponent>()
+                                     .SelectMany(r => r.Components)
+                                     .OfType<ButtonComponent>()
+                                     .Any(b => b.CustomId == "create_ticket"));
 
-        var info = _services.GetRequiredService<InfoMessageService>();
-        ulong mainChannelId = 1568654498723930284;
+        var embed = new EmbedBuilder()
+            .WithTitle("💼 Биржевик")
+            .WithDescription("Нажмите кнопку ниже, чтобы открыть личный кабинет.")
+            .WithColor(Color.Blue)
+            .Build();
 
-        if (_client.GetChannel(mainChannelId) is ITextChannel textChannel)
-        {
-            var messages = await textChannel.GetMessagesAsync(50).FlattenAsync();
-            var botMessage = messages
-                .OfType<IUserMessage>()
-                .FirstOrDefault(m => m.Author.Id == _client.CurrentUser.Id &&
-                                     m.Components != null &&
-                                     m.Components
-                                         .OfType<ActionRowComponent>()
-                                         .SelectMany(r => r.Components)
-                                         .OfType<ButtonComponent>()
-                                         .Any(b => b.CustomId == "create_ticket"));
+        var builder = new ComponentBuilder()
+            .WithButton("Создать личный кабинет", "create_ticket", ButtonStyle.Primary);
 
-            var embed = new EmbedBuilder()
-                .WithTitle("💼 Биржевик")
-                .WithDescription("Нажмите кнопку ниже, чтобы открыть личный кабинет.")
-                .WithColor(Color.Blue)
-                .Build();
-
-            var builder = new ComponentBuilder()
-                .WithButton("Создать личный кабинет", "create_ticket", ButtonStyle.Primary);
-
-            if (botMessage != null)
-            {
-                await botMessage.ModifyAsync(m => { m.Embed = embed; m.Components = builder.Build(); });
-                Console.WriteLine("[READY] Главное меню обновлено.");
-            }
-            else
-            {
-                await textChannel.SendMessageAsync(embed: embed, components: builder.Build());
-                Console.WriteLine("[READY] Главное меню отправлено.");
-            }
-            
-            var activeThreads = await textChannel.GetActiveThreadsAsync();
-            foreach (var thread in activeThreads)
-            {
-                await info.CleanupAndCreateAsync(thread, "Жду действия.", markers:"📌");
-            }
-            
-            await info.CleanupAndCreateAsync(textChannel, "Добро пожаловать! Выберите действие.", markers: ["📌"]);
-        }
+        if (botMessage != null)
+            await botMessage.ModifyAsync(m => { m.Embed = embed; m.Components = builder.Build(); });
         else
+            await textChannel.SendMessageAsync(embed: embed, components: builder.Build());
+
+        // 2. ЯДЕРНАЯ ОЧИСТКА ВЕТОК ИЗ БАЗЫ ДАННЫХ
+        using var scope = _services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DbService>();
+        
+        // Получаем ВСЕ заказы (или только те, где есть ID веток)
+        var orders = await db.GetActiveOrdersAsync(); // Или метод, который вернет все заказы с ветками
+
+        foreach (var order in orders)
         {
-            Console.WriteLine("❌ Главный канал не найден.");
+            if (order.ClientThreadId.HasValue && _client.GetChannel(order.ClientThreadId.Value) is IMessageChannel clientThread)
+            {
+                await info.HardResetMarkersAsync(clientThread, "📌", "📊");
+            }
+
+            if (order.BoosterThreadId.HasValue && _client.GetChannel(order.BoosterThreadId.Value) is IMessageChannel boosterThread)
+            {
+                await info.HardResetMarkersAsync(boosterThread, "📌", "📊");
+            }
         }
+
+        // 3. Очистка и создание в главном канале
+        await info.CleanupAndCreateAsync(textChannel, "Добро пожаловать! Выберите действие.", markers: "📌");
     }
+    else
+    {
+        Console.WriteLine("❌ Главный канал не найден.");
+    }
+}
 }
