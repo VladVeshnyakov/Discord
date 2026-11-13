@@ -318,7 +318,7 @@ public class UserActions
     
         await _db.AddShiftAsync(shift);
 
-        await _info.UpdateAsync(component.Channel, $"✅ Смена по заказу #{order.Id} начата.");
+        await _info.UpdateAsync(component.Channel, $"Смена по заказу #{order.Id} начата.");
         await UpdateProgressAsync(component.Channel, order); 
     }
 
@@ -342,7 +342,7 @@ public class UserActions
         order.IsShiftActive = false;
         await _db.UpdateOrderAsync(order);
         
-        await _info.UpdateAsync(component.Channel, $"🛑 Смена по заказу #{order.Id} завершена.");
+        await _info.UpdateAsync(component.Channel, $"Смена по заказу #{order.Id} завершена.");
         await UpdateProgressAsync(component.Channel, order); 
     }
     
@@ -351,7 +351,7 @@ public class UserActions
         try
         {
             var embed = await BuildProgressEmbedAsync(order, page);
-            var components = BuildProgressComponents(order, page);
+            var components = BuildProgressComponents(order, page, channel.Id);
             
             await _info.UpdateAsync(channel, text: "", embed: embed, components: components, markers: "📊");
         }
@@ -362,80 +362,79 @@ public class UserActions
     }
 
     private async Task<Embed> BuildProgressEmbedAsync(Order order, int page)
-{
-    var heroNames = await _dota.GetHeroNamesAsync();
-    var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
-    
-    // Сортируем от новых к старым
-    matches = matches.OrderByDescending(m => m.StartTime).ToList();
-
-    int totalPages = (int)Math.Ceiling((double)matches.Count / MatchesPerPage);
-    if (totalPages == 0) totalPages = 1;
-    if (page < 0) page = 0;
-    if (page >= totalPages) page = totalPages - 1;
-
-    var pagedMatches = matches.Skip(page * MatchesPerPage).Take(MatchesPerPage).ToList();
-
-    var embed = new EmbedBuilder()
-        .WithTitle($"Заказ #{order.Id} | {order.Service?.Name ?? "Услуга"}")
-        .WithColor(order.Status == OrderStatus.Completed ? Color.Green : Color.Blue)
-        .WithFooter($"Страница {page + 1} из {totalPages} • Обновляется автоматически")
-        .WithCurrentTimestamp();
-
-    if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
     {
-        string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
-        embed.AddField("🏆 Ранг", $"**Текущий:** {currentRank}\n", inline: true);
-    }
-    else
-    {
-        embed.AddField("Игры", $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}", inline: true);
-    }
-    string shiftStatus = order.IsShiftActive ? "🟢 Активна" : "🔴 Не начата";
-    embed.AddField("Смена", shiftStatus, inline: true);
-    embed.AddField("👥 Игроки",
-        $"Бустер: **{order.BoosterGamesPlayed}** игр\n" +
-        $"Клиент: **{order.OwnerGamesPlayed}** игр",
-        inline: true);
-    
-    var sb = new StringBuilder();
-    if (pagedMatches.Count > 0)
-    {
-        var tableData = new List<string[]>();
-        foreach (var m in pagedMatches)
-        {
-            string res = m.IsWin ? "Win " : "Lose"; 
-            string who = m.IsBooster ? "Бустер" : "Клиент";
-            string hero = heroNames.TryGetValue(m.HeroId, out var name) ? name : $"Герой #{m.HeroId}";
-            string kda = $"{m.Kills}/{m.Deaths}/{m.Assists}";
-            string time = $"{m.Duration / 60} мин";
-            string mode = FormatGameMode(m.GameMode, m.LobbyType);
-
-            tableData.Add(new[] { res, who, hero, kda, time, mode });
-        }
-
-        int[] maxWidths = new int[5];
-        for (int i = 0; i < 5; i++)
-        {
-            maxWidths[i] = tableData.Max(row => row[i].Length);
-        }
+        var heroNames = await _dota.GetHeroNamesAsync();
+        var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
         
-        sb.AppendLine("```");
-        foreach (var row in tableData)
+        matches = matches.OrderByDescending(m => m.StartTime).ToList();
+
+        int totalPages = (int)Math.Ceiling((double)matches.Count / MatchesPerPage);
+        if (totalPages == 0) totalPages = 1;
+        if (page < 0) page = 0;
+        if (page >= totalPages) page = totalPages - 1;
+
+        var pagedMatches = matches.Skip(page * MatchesPerPage).Take(MatchesPerPage).ToList();
+
+        var embed = new EmbedBuilder()
+            .WithTitle($"Заказ #{order.Id} | {order.Service?.Name ?? "Услуга"}")
+            .WithColor(order.Status == OrderStatus.Completed ? Color.Green : Color.Blue)
+            .WithFooter($"Страница {page + 1} из {totalPages} • Обновляется автоматически")
+            .WithCurrentTimestamp();
+
+        if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
         {
-            sb.AppendLine($"{row[0].PadRight(maxWidths[0])} | {row[1].PadRight(maxWidths[1])} | {row[2].PadRight(maxWidths[2])} | {row[3].PadRight(maxWidths[3])} | {row[4].PadRight(maxWidths[4])} | {row[5]}");
+            string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
+            embed.AddField("🏆 Ранг", $"**Текущий:** {currentRank}\n", inline: true);
         }
-        sb.AppendLine("```");
-    }
-    else
-    {
-        sb.AppendLine("*Ожидание первого матча...*");
-    }
+        else
+        {
+            embed.AddField("Игры", $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}", inline: true);
+        }
+        string shiftStatus = order.IsShiftActive ? "🟢 Активна" : "🔴 Не начата";
+        embed.AddField("Смена", shiftStatus, inline: true);
+        embed.AddField("👥 Игроки",
+            $"Бустер: **{order.BoosterGamesPlayed}** игр\n" +
+            $"Клиент: **{order.OwnerGamesPlayed}** игр",
+            inline: true);
+        
+        var sb = new StringBuilder();
+        if (pagedMatches.Count > 0)
+        {
+            var tableData = new List<string[]>();
+            foreach (var m in pagedMatches)
+            {
+                string res = m.IsWin ? "Win " : "Lose"; 
+                string who = m.IsBooster ? "Бустер" : "Клиент";
+                string hero = heroNames.TryGetValue(m.HeroId, out var name) ? name : $"Герой #{m.HeroId}";
+                string kda = $"{m.Kills}/{m.Deaths}/{m.Assists}";
+                string time = $"{m.Duration / 60} мин";
+                string mode = FormatGameMode(m.GameMode, m.LobbyType);
 
-    embed.AddField("История матчей", sb.ToString(), inline: false);
+                tableData.Add(new[] { res, who, hero, kda, time, mode });
+            }
 
-    return embed.Build();
-}
+            int[] maxWidths = new int[5];
+            for (int i = 0; i < 5; i++)
+            {
+                maxWidths[i] = tableData.Max(row => row[i].Length);
+            }
+            
+            sb.AppendLine("```");
+            foreach (var row in tableData)
+            {
+                sb.AppendLine($"{row[0].PadRight(maxWidths[0])} | {row[1].PadRight(maxWidths[1])} | {row[2].PadRight(maxWidths[2])} | {row[3].PadRight(maxWidths[3])} | {row[4].PadRight(maxWidths[4])} | {row[5]}");
+            }
+            sb.AppendLine("```");
+        }
+        else
+        {
+            sb.AppendLine("*Ожидание первого матча...*");
+        }
+
+        embed.AddField("История матчей", sb.ToString(), inline: false);
+
+        return embed.Build();
+    }
     
     private string FormatGameMode(int gameMode, int lobbyType)
     {
@@ -458,22 +457,27 @@ public class UserActions
         return modeStr;
     }
 
-    private MessageComponent BuildProgressComponents(Order order, int page)
+    private MessageComponent BuildProgressComponents(Order order, int page, ulong chanel_id)
     {
         var builder = new ComponentBuilder();
         var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
         int totalPages = (int)Math.Ceiling((double)matches.Count / MatchesPerPage);
     
 
-        if (order.IsShiftActive)
+        bool isBoosterThread = order.BoosterThreadId.HasValue && order.BoosterThreadId.Value == chanel_id;
+        
+        
+        if (isBoosterThread)
         {
-            builder.WithButton("🔴 Закончить смену", $"end_shift_{order.Id}", ButtonStyle.Danger, row: 0);
+            if (order.IsShiftActive)
+            {
+                builder.WithButton("🔴 Закончить смену", $"end_shift_{order.Id}", ButtonStyle.Danger, row: 0);
+            }
+            else
+            {
+                builder.WithButton("🟢 Начать смену", $"start_shift_{order.Id}", ButtonStyle.Success, row: 0);
+            }
         }
-        else
-        {
-            builder.WithButton("🟢 Начать смену", $"start_shift_{order.Id}", ButtonStyle.Success, row: 0);
-        }
-    
 
         if (totalPages > 1)
         {
