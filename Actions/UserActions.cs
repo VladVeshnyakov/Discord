@@ -69,7 +69,7 @@ public class UserActions
 
             await thread.SendMessageAsync(embed: embed, components: builder.Build());
 
-            await _info.CleanupAndCreateAsync(thread, "Жду действия.", marker: "📌");
+            await _info.CleanupAndCreateAsync(thread, "Жду действия.", markers: "📌");
             await component.FollowupAsync($"Ветка создана! {thread.Mention}", ephemeral: true);
         }
         catch (Exception ex)
