@@ -351,7 +351,7 @@ public class UserActions
             var embed = await BuildProgressEmbedAsync(order, page);
             var components = BuildProgressComponents(order, page);
             
-            await _info.UpdateAsync(channel, text: "", embed: embed, components: components, marker: "📊");
+            await _info.UpdateAsync(channel, text: "", embed: embed, components: components, markers: "📊");
         }
         catch (Exception ex)
         {
