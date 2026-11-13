@@ -17,11 +17,10 @@ public class InfoMessageService
         _client = client;
     }
 
-    public async Task CleanupAndCreateAsync(
-        IMessageChannel channel, string text, Embed? embed = null,
-        MessageComponent? components = null, params string[] markers)
+    // --- НОВЫЙ МЕТОД ДЛЯ ОЧИСТКИ ПРИ СТАРТЕ ---
+    public async Task HardResetMarkersAsync(IMessageChannel channel, params string[] markers)
     {
-        if (markers == null || markers.Length == 0) markers = new[] { "📌" };
+        if (markers == null || markers.Length == 0) return;
 
         try
         {
@@ -36,13 +35,20 @@ public class InfoMessageService
                 }
             }
         }
-        catch (Exception ex) { Console.WriteLine($"[INFO CLEANUP ERROR] {ex.Message}"); }
+        catch (Exception ex) { Console.WriteLine($"[HARD RESET ERROR] {ex.Message}"); }
         
         foreach (var m in markers)
         {
             _messages.TryRemove((channel.Id, m), out _);
         }
+    }
 
+    public async Task CleanupAndCreateAsync(
+        IMessageChannel channel, string text, Embed? embed = null,
+        MessageComponent? components = null, params string[] markers)
+    {
+        if (markers == null || markers.Length == 0) markers = new[] { "📌" };
+        await HardResetMarkersAsync(channel, markers);
         await CreateAsync(channel, text, embed, components, markers[0]);
     }
 
@@ -55,6 +61,7 @@ public class InfoMessageService
         ulong? msgId = null;
         string markerFound = null;
         
+        // Ищем только в оперативной памяти
         foreach (var marker in markers)
         {
             if (_messages.TryGetValue((channel.Id, marker), out ulong id))
@@ -85,6 +92,7 @@ public class InfoMessageService
             _messages.TryRemove((channel.Id, markerFound), out _);
         }
         
+        // Если в памяти нет, создаем новое
         await CreateAsync(channel, text, embed, components, markers[0]);
     }
 

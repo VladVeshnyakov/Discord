@@ -127,7 +127,7 @@ public class BotService
                 await info.CleanupAndCreateAsync(thread, "Жду действия.", markers:"📌");
             }
             
-            await info.CleanupAndCreateAsync(textChannel, "Добро пожаловать! Выберите действие.", markers: "📌");
+            await info.CleanupAndCreateAsync(textChannel, "Добро пожаловать! Выберите действие.", markers: ["📌"]);
         }
         else
         {
