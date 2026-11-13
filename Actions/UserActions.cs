@@ -319,6 +319,7 @@ public class UserActions
         await _db.AddShiftAsync(shift);
 
         await _info.UpdateAsync(component.Channel, $"✅ Смена по заказу #{order.Id} начата.");
+        await UpdateProgressAsync(component.Channel, order); 
     }
 
     public async Task EndShiftAsync(SocketMessageComponent component, int orderId)
@@ -340,8 +341,9 @@ public class UserActions
 
         order.IsShiftActive = false;
         await _db.UpdateOrderAsync(order);
-
+        
         await _info.UpdateAsync(component.Channel, $"🛑 Смена по заказу #{order.Id} завершена.");
+        await UpdateProgressAsync(component.Channel, order); 
     }
     
     public async Task UpdateProgressAsync(IMessageChannel channel, Order order, int page = 0)
@@ -389,7 +391,8 @@ public class UserActions
     {
         embed.AddField("Игры", $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}", inline: true);
     }
-
+    string shiftStatus = order.IsShiftActive ? "🟢 Активна" : "🔴 Не начата";
+    embed.AddField("Смена", shiftStatus, inline: true);
     embed.AddField("👥 Игроки",
         $"Бустер: **{order.BoosterGamesPlayed}** игр\n" +
         $"Клиент: **{order.OwnerGamesPlayed}** игр",
@@ -450,7 +453,7 @@ public class UserActions
             _ => $"Mode{gameMode}"
         };
 
-        if (lobbyType == 7) return $"{modeStr}  MM";
+        if (lobbyType == 7) return $"MM";
         if (lobbyType == 0) return modeStr;
         return modeStr;
     }
@@ -460,13 +463,24 @@ public class UserActions
         var builder = new ComponentBuilder();
         var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
         int totalPages = (int)Math.Ceiling((double)matches.Count / MatchesPerPage);
+    
+
+        if (order.IsShiftActive)
+        {
+            builder.WithButton("🔴 Закончить смену", $"end_shift_{order.Id}", ButtonStyle.Danger, row: 0);
+        }
+        else
+        {
+            builder.WithButton("🟢 Начать смену", $"start_shift_{order.Id}", ButtonStyle.Success, row: 0);
+        }
+    
 
         if (totalPages > 1)
         {
-            builder.WithButton("◀ Назад", $"progress_page_{order.Id}_{page - 1}", ButtonStyle.Secondary, disabled: page <= 0)
-                   .WithButton("Вперед ▶", $"progress_page_{order.Id}_{page + 1}", ButtonStyle.Secondary, disabled: page >= totalPages - 1);
+            builder.WithButton("◀ Назад", $"progress_page_{order.Id}_{page - 1}", ButtonStyle.Secondary, row: 1, disabled: page <= 0)
+                   .WithButton("Вперед ▶", $"progress_page_{order.Id}_{page + 1}", ButtonStyle.Secondary, row: 1, disabled: page >= totalPages - 1);
         }
-
+    
         return builder.Build();
     }
 
