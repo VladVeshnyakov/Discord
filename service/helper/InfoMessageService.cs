@@ -16,13 +16,13 @@ public class InfoMessageService
     {
         _client = client;
     }
-    
-
 
     public async Task CleanupAndCreateAsync(
         IMessageChannel channel, string text, Embed? embed = null,
-        MessageComponent? components = null, string marker = "📌")
+        MessageComponent? components = null, params string[] markers)
     {
+        if (markers == null || markers.Length == 0) markers = new[] { "📌" };
+
         try
         {
             var messages = await channel.GetMessagesAsync(100).FlattenAsync();
@@ -30,32 +30,51 @@ public class InfoMessageService
             {
                 if (msg is IUserMessage userMsg &&
                     userMsg.Author.Id == _client.CurrentUser.Id &&
-                    userMsg.Content?.StartsWith(marker) == true)
+                    markers.Any(m => userMsg.Content?.StartsWith(m) == true))
                 {
                     try { await userMsg.DeleteAsync(); } catch { }
                 }
             }
         }
         catch (Exception ex) { Console.WriteLine($"[INFO CLEANUP ERROR] {ex.Message}"); }
+        
+        foreach (var m in markers)
+        {
+            _messages.TryRemove((channel.Id, m), out _);
+        }
 
-        _messages.TryRemove((channel.Id, marker), out _);
-        await CreateAsync(channel, text, embed, components, marker);
+        await CreateAsync(channel, text, embed, components, markers[0]);
     }
 
     public async Task UpdateAsync(
         IMessageChannel channel, string text, Embed? embed = null,
-        MessageComponent? components = null, string marker = "📌")
+        MessageComponent? components = null, params string[] markers)
     {
-        if (_messages.TryGetValue((channel.Id, marker), out ulong msgId))
+        if (markers == null || markers.Length == 0) markers = new[] { "📌" };
+
+        ulong? msgId = null;
+        string markerFound = null;
+        
+        foreach (var marker in markers)
+        {
+            if (_messages.TryGetValue((channel.Id, marker), out ulong id))
+            {
+                msgId = id;
+                markerFound = marker;
+                break;
+            }
+        }
+
+        if (msgId.HasValue && markerFound != null)
         {
             try
             {
-                var existing = await channel.GetMessageAsync(msgId);
+                var existing = await channel.GetMessageAsync(msgId.Value);
                 if (existing is IUserMessage userMsg)
                 {
                     await userMsg.ModifyAsync(m =>
                     {
-                        m.Content = $"{marker} {text}";
+                        m.Content = $"{markerFound} {text}";
                         m.Embed = embed;
                         m.Components = components ?? new ComponentBuilder().Build();
                     });
@@ -63,9 +82,10 @@ public class InfoMessageService
                 }
             }
             catch { }
-            _messages.TryRemove((channel.Id, marker), out _);
+            _messages.TryRemove((channel.Id, markerFound), out _);
         }
-        await CreateAsync(channel, text, embed, components, marker);
+        
+        await CreateAsync(channel, text, embed, components, markers[0]);
     }
 
     private async Task CreateAsync(

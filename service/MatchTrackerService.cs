@@ -81,7 +81,7 @@ public class MatchTrackerService : BackgroundService
 
         var boostStart = order.Shifts.Min(s => s.StartUtc);
         var matches = await dota.GetRecentMatchesAsync(order.DotaAccountId);
-        if (matches.Count == 0) return;
+        //if (matches.Count == 0) return;
 
         // 1. Обновляем текущий ранг игрока
         var playerInfo = await dota.GetPlayerInfoAsync(order.DotaAccountId);

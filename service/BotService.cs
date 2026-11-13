@@ -124,10 +124,10 @@ public class BotService
             var activeThreads = await textChannel.GetActiveThreadsAsync();
             foreach (var thread in activeThreads)
             {
-                await info.CleanupAndCreateAsync(thread, "Жду действия.", marker: "📌");
+                await info.CleanupAndCreateAsync(thread, "Жду действия.", markers:"📌");
             }
             
-            await info.CleanupAndCreateAsync(textChannel, "Добро пожаловать! Выберите действие.", marker: "📌");
+            await info.CleanupAndCreateAsync(textChannel, "Добро пожаловать! Выберите действие.", markers: "📌");
         }
         else
         {

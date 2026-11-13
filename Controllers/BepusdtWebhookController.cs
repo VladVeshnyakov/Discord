@@ -271,7 +271,7 @@ public class BepusdtWebhookController : ControllerBase
             text: "",
             embed: embed,
             components: components,
-            marker: "📊");
+            markers: "📊");
     }
 
     private MessageComponent BuildBoosterButtons(Order order)
