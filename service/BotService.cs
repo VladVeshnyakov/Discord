@@ -36,9 +36,9 @@ public class BotService
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
             var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
             var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
-
-            var actions = new UserActions(db, bepusdt, orderChannels, info, dota);
-            var handlers = new ButtonHandlers(actions, info, db); // <-- Добавили db
+            var socket = scope.ServiceProvider.GetRequiredService<DiscordSocketClient>();
+            var actions = new UserActions(db, bepusdt, orderChannels, info, dota, socket);
+            var handlers = new ButtonHandlers(actions, info, db);
             await handlers.HandleButtonAsync(component);
         };
 
@@ -50,8 +50,8 @@ public class BotService
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
             var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
             var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
-
-            var actions = new UserActions(db, bepusdt, orderChannels, info, dota); 
+            var socket = scope.ServiceProvider.GetRequiredService<DiscordSocketClient>();
+            var actions = new UserActions(db, bepusdt, orderChannels, info, dota, socket);
             var handlers = new ButtonHandlers(actions, info, db);
             await handlers.HandleSelectMenuAsync(component);
         };

@@ -22,16 +22,17 @@ public class UserActions
     private readonly OpenDotaService _dota;
     private const int ServicesPerPage = 5;
     private const int MatchesPerPage = 5;
-
+    private readonly DiscordSocketClient _client; // <-- ДОБАВИЛИ
     private static readonly Dictionary<ulong, int> _userSelections = new();
 
-    public UserActions(DbService db, BepusdtService bepusdt, OrderChannelService orderChannels, InfoMessageService info, OpenDotaService dota)
+    public UserActions(DbService db, BepusdtService bepusdt, OrderChannelService orderChannels, InfoMessageService info, OpenDotaService dota, DiscordSocketClient client)
     {
         _db = db;
         _bepusdt = bepusdt;
         _orderChannels = orderChannels;
         _info = info;
         _dota = dota;
+        _client = client; // <-- ДОБАВИЛИ
     }
 
     public void SaveUserSelection(ulong userId, int serviceId)
@@ -319,7 +320,7 @@ public class UserActions
         await _db.AddShiftAsync(shift);
 
         await _info.UpdateAsync(component.Channel, $"Смена по заказу #{order.Id} начата.");
-        await UpdateProgressAsync(component.Channel, order); 
+        await UpdateBothThreadsAsync(component, order); 
     }
 
     public async Task EndShiftAsync(SocketMessageComponent component, int orderId)
@@ -343,7 +344,7 @@ public class UserActions
         await _db.UpdateOrderAsync(order);
         
         await _info.UpdateAsync(component.Channel, $"Смена по заказу #{order.Id} завершена.");
-        await UpdateProgressAsync(component.Channel, order); 
+        await UpdateBothThreadsAsync(component, order); 
     }
     
     public async Task UpdateProgressAsync(IMessageChannel channel, Order order, int page = 0)
@@ -358,6 +359,22 @@ public class UserActions
         catch (Exception ex)
         {
             Console.WriteLine($"[PROGRESS EMBED ERROR] {ex.Message}");
+        }
+    }
+    private async Task UpdateBothThreadsAsync(SocketMessageComponent component, Order order)
+    {
+        // 1. Обновляем ту ветку, где нажали кнопку
+        await UpdateProgressAsync(component.Channel, order);
+
+        // 2. Определяем ID второй ветки
+        ulong? otherThreadId = component.Channel.Id == order.ClientThreadId 
+            ? order.BoosterThreadId 
+            : order.ClientThreadId;
+
+        // 3. Используем _client для поиска канала
+        if (otherThreadId.HasValue && _client.GetChannel(otherThreadId.Value) is IMessageChannel otherChannel)
+        {
+            await UpdateProgressAsync(otherChannel, order);
         }
     }
 

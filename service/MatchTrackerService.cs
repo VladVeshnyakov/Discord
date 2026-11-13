@@ -9,7 +9,8 @@ using System.Text.Json;
 using Discord;
 using DiscordBirge.Helpers;
 using DiscordBirge.Services;
-using System.Collections.Generic; // Добавили для HashSet
+using System.Collections.Generic;
+using DiscordBirge.Actions; // Добавили для HashSet
 
 namespace DiscordBirge.Workers;
 
@@ -45,7 +46,9 @@ public class MatchTrackerService : BackgroundService
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
             var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
-            var actions = new DiscordBirge.Actions.UserActions(db, bepusdt, orderChannels, info, dota);
+            var socket = scope.ServiceProvider.GetRequiredService<DiscordSocketClient>();
+            var actions = new UserActions(db, bepusdt, orderChannels, info, dota, socket);
+
 
             List<Order> activeOrders;
             try

@@ -65,7 +65,7 @@ public class InfoMessageService
         MessageComponent? components = null, params string[] markers)
     {
         if (markers == null || markers.Length == 0) markers = new[] { "📌" };
-
+        
         ulong? msgId = null;
         string markerFound = null;
         
@@ -101,6 +101,7 @@ public class InfoMessageService
         
         await CreateAsync(channel, text, embed, components, markers[0]);
     }
+    
 
     private async Task CreateAsync(
         IMessageChannel channel, string text, Embed? embed,
