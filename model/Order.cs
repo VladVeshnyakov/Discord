@@ -40,6 +40,11 @@ public class Order
     public int TargetGames { get; set; } = 0; 
 
     // --- СТАТИСТИКА ---
+    public int CurrentGames { get; set; } = 0;
+    public int ClientWin { get; set; }
+    public int ClientLose { get; set; }
+    public int BoosterWin { get; set; }
+    public int BoosterLose { get; set; }
     public List<Shift> Shifts { get; set; } = new();
     public int BoosterGamesPlayed { get; set; } = 0;
     public int OwnerGamesPlayed { get; set; } = 0;

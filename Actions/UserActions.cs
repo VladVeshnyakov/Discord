@@ -410,8 +410,8 @@ public class UserActions
         string shiftStatus = order.IsShiftActive ? "🟢 Активна" : "🔴 Не начата";
         embed.AddField("Смена", shiftStatus, inline: true);
         embed.AddField("👥 Игроки",
-            $"Бустер: **{order.BoosterGamesPlayed}** игр\n" +
-            $"Клиент: **{order.OwnerGamesPlayed}** игр",
+            $"Бустер: **win:{order.BoosterWin} lose{order.BoosterLose}\n" +
+            $"Клиент: **win:{order.ClientWin} lose{order.ClientLose}",
             inline: true);
         
         var sb = new StringBuilder();

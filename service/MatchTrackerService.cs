@@ -132,8 +132,18 @@ public class MatchTrackerService : BackgroundService
                     bool isRadiant = m.PlayerSlot < 128;
                     bool isWin = (isRadiant && m.RadiantWin) || (!isRadiant && !m.RadiantWin);
 
-                    if (isBooster) order.BoosterGamesPlayed++;
-                    else order.OwnerGamesPlayed++;
+                    if (isBooster)
+                    {
+                        order.BoosterGamesPlayed++;
+                        if (isWin) order.BoosterWin++;
+                        else order.BoosterLose++;
+                    }
+                    else
+                    {
+                        order.OwnerGamesPlayed++;
+                        if (isWin) order.BoosterWin++;
+                        else order.ClientLose++;
+                    }
 
                     storedMatches.Add(new OrderMatch
                     {

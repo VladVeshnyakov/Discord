@@ -39,17 +39,29 @@ namespace DiscordBirge.Migrations
                     b.Property<decimal>("BoosterId")
                         .HasColumnType("numeric(20,0)");
 
+                    b.Property<int>("BoosterLose")
+                        .HasColumnType("integer");
+
                     b.Property<int>("BoosterMmrChange")
                         .HasColumnType("integer");
 
                     b.Property<decimal?>("BoosterThreadId")
                         .HasColumnType("numeric(20,0)");
 
+                    b.Property<int>("BoosterWin")
+                        .HasColumnType("integer");
+
                     b.Property<decimal>("ClientId")
                         .HasColumnType("numeric(20,0)");
 
+                    b.Property<int>("ClientLose")
+                        .HasColumnType("integer");
+
                     b.Property<decimal?>("ClientThreadId")
                         .HasColumnType("numeric(20,0)");
+
+                    b.Property<int>("ClientWin")
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -61,6 +73,9 @@ namespace DiscordBirge.Migrations
                     b.Property<string>("CryptoWallet")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("CurrentGames")
+                        .HasColumnType("integer");
 
                     b.Property<int>("CurrentMmr")
                         .HasColumnType("integer");
