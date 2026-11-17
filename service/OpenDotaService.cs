@@ -44,7 +44,7 @@ public class OpenDotaService
     {
         try
         {
-            var response = await _http.GetAsync($"players/{accountId}/matches?limit=20");
+            var response = await _http.GetAsync($"players/{accountId}/matches?limit=20&significant=0");
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync();
             var matches = JsonSerializer.Deserialize<List<DotaMatchDto>>(content,
