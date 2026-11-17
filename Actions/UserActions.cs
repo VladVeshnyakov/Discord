@@ -22,7 +22,7 @@ public class UserActions
     private readonly OpenDotaService _dota;
     private const int ServicesPerPage = 5;
     private const int MatchesPerPage = 5;
-    private readonly DiscordSocketClient _client; // <-- ДОБАВИЛИ
+    private readonly DiscordSocketClient _client;
     private static readonly Dictionary<ulong, int> _userSelections = new();
 
     public UserActions(DbService db, BepusdtService bepusdt, OrderChannelService orderChannels, InfoMessageService info, OpenDotaService dota, DiscordSocketClient client)
@@ -407,11 +407,11 @@ public class UserActions
         {
             embed.AddField("Игры", $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}", inline: true);
         }
-        string shiftStatus = order.IsShiftActive ? "🟢 Активна" : "🔴 Не начата";
+        string shiftStatus = order.IsShiftActive ? "Активна" : "Не начата";
         embed.AddField("Смена", shiftStatus, inline: true);
         embed.AddField("👥 Игроки",
-            $"Бустер: **win:{order.BoosterWin} lose{order.BoosterLose}\n" +
-            $"Клиент: **win:{order.ClientWin} lose{order.ClientLose}",
+            $"Бустер: **WIN:{order.BoosterWin} LOSE:{order.BoosterLose}\n" +
+            $"Клиент: **WIN:{order.ClientWin} LOSE:{order.ClientLose}",
             inline: true);
         
         var sb = new StringBuilder();
@@ -488,11 +488,11 @@ public class UserActions
         {
             if (order.IsShiftActive)
             {
-                builder.WithButton("🔴 Закончить смену", $"end_shift_{order.Id}", ButtonStyle.Danger, row: 0);
+                builder.WithButton("Закончить смену", $"end_shift_{order.Id}", ButtonStyle.Danger, row: 0);
             }
             else
             {
-                builder.WithButton("🟢 Начать смену", $"start_shift_{order.Id}", ButtonStyle.Success, row: 0);
+                builder.WithButton("Начать смену", $"start_shift_{order.Id}", ButtonStyle.Success, row: 0);
             }
         }
 

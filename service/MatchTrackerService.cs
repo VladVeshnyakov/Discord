@@ -141,7 +141,7 @@ public class MatchTrackerService : BackgroundService
                     else
                     {
                         order.OwnerGamesPlayed++;
-                        if (isWin) order.BoosterWin++;
+                        if (isWin) order.ClientLose++;
                         else order.ClientLose++;
                     }
 
