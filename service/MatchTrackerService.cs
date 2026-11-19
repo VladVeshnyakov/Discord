@@ -73,10 +73,10 @@ public class MatchTrackerService : BackgroundService
                 {
                     _logger.LogError(ex, "Ошибка обработки заказа #{Id}", order.Id);
                 }
-                await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(3), stoppingToken);
+            await Task.Delay(TimeSpan.FromMinutes(6), stoppingToken);
         }
     }
 
@@ -95,7 +95,7 @@ public class MatchTrackerService : BackgroundService
 
         var boostStart = order.Shifts.Min(s => s.StartUtc);
         var matches = await dota.GetRecentMatchesAsync(order.DotaAccountId);
-        
+        if (matches == null) matches = new List<DotaMatchDto>();
 
         var playerInfo = await dota.GetPlayerInfoAsync(order.DotaAccountId);
         order.NameAccount = playerInfo.Profile.PersonaName;
