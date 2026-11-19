@@ -1,3 +1,5 @@
+using DiscordBirge.Models;
+
 namespace DiscordBirge.Services;
 
 public static class DotaRankHelper
@@ -24,10 +26,24 @@ public static class DotaRankHelper
         return $"{Medals[medal]} {star}";
     }
 
-    public static string GetMmrDisplay(int? mmrEstimate, int? rankTier)
+    /// <summary>
+    /// Проверяет, подходит ли сыгранный матч под условия конкретной услуги.
+    /// </summary>
+    public static bool IsMatchAllowed(ServiceType type, int gameMode, int lobbyType)
     {
-        if (mmrEstimate.HasValue) return $"~{mmrEstimate} MMR";
-        if (rankTier.HasValue && rankTier.Value > 0) return GetRankName(rankTier, null);
-        return "MMR неизвестен";
+        return type switch
+        {
+            //только Single Draft (код 4)
+            ServiceType.LP => gameMode == 4,
+
+            // только Рейтинг (lobby_type == 7)
+            ServiceType.Boost => lobbyType == 7,
+            ServiceType.Calibration => lobbyType == 7,
+
+            // Behavior (Порядочность) - подходит любой режим (и обычные, и турбо)
+            ServiceType.Behavior => true,
+
+            _ => true
+        };
     }
 }

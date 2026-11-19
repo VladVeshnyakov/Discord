@@ -96,6 +96,10 @@ namespace DiscordBirge.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("NameAccount")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<int>("OwnerGamesPlayed")
                         .HasColumnType("integer");
 
@@ -177,6 +181,9 @@ namespace DiscordBirge.Migrations
                     b.Property<decimal>("Price")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("TargetGames")
+                        .HasColumnType("integer");
 
                     b.Property<int>("Type")
                         .HasColumnType("integer");

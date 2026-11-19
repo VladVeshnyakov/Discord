@@ -398,20 +398,24 @@ public class UserActions
             .WithFooter($"Страница {page + 1} из {totalPages} • Обновляется автоматически")
             .WithCurrentTimestamp();
 
-        if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
-        {
+
             string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
-            embed.AddField("🏆 Ранг", $"**Текущий:** {currentRank}\n", inline: true);
-        }
-        else
-        {
-            embed.AddField("Игры", $"Сыграно: **{order.TotalGamesPlayed}** / {order.TargetGames}", inline: true);
-        }
+            
+        
+            if (order.Service.Type == ServiceType.LP)
+            {
+                embed.AddField("Игры", $"Сыграно всего: **{order.TotalGamesPlayed}** / {order.TargetGames}, бустер сыграл {order.BoosterGamesPlayed}", inline: true);
+            }
+
+            else embed.AddField("Игры", $"Сыграно: **{order.BoosterGamesPlayed}** / {order.TargetGames}", inline: true);
+
+            embed.AddField("info", $"Ранг:{currentRank}; {order.NameAccount}");
+        
         string shiftStatus = order.IsShiftActive ? "Активна" : "Не начата";
         embed.AddField("Смена", shiftStatus, inline: true);
         embed.AddField("👥 Игроки",
-            $"Бустер: **WIN:{order.BoosterWin} LOSE:{order.BoosterLose}\n" +
-            $"Клиент: **WIN:{order.ClientWin} LOSE:{order.ClientLose}",
+            $"Бустер: **W:{order.BoosterWin} L:{order.BoosterLose}\n" +
+            $"Клиент: **W:{order.ClientWin} L:{order.ClientLose}",
             inline: true);
         
         var sb = new StringBuilder();
@@ -420,7 +424,7 @@ public class UserActions
             var tableData = new List<string[]>();
             foreach (var m in pagedMatches)
             {
-                string res = m.IsWin ? "Win " : "Lose"; 
+                string res = m.IsWin ? "W " : "L"; 
                 string who = m.IsBooster ? "Бустер" : "Клиент";
                 string hero = heroNames.TryGetValue(m.HeroId, out var name) ? name : $"Герой #{m.HeroId}";
                 string kda = $"{m.Kills}/{m.Deaths}/{m.Assists}";

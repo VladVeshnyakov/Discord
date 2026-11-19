@@ -10,10 +10,11 @@ public class ServiceItem
     public ServiceType Type { get; set; }
     public int MinMmr { get; set; }
     public int MaxMmr { get; set; }
-    
+    public int TargetGames { get; set; }
     public ulong BoosterId { get; set; }
     public string BoosterSteam { get; set; } 
     
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
 }

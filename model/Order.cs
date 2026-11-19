@@ -11,6 +11,7 @@ public class Order
     public ulong ClientId { get; set; }
     public ulong BoosterId { get; set; }
     public int ServiceId { get; set; }
+    public string NameAccount { get; set; } = string.Empty;
     public ServiceItem Service { get; set; }
     
     public decimal Price { get; set; } 

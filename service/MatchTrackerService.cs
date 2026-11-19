@@ -86,28 +86,26 @@ public class MatchTrackerService : BackgroundService
         if (order.DotaAccountId == 0) return;
 
         bool needsDiscordUpdate = false;
-
-        // --- ПРОВЕРКА ПЕРВОГО ЗАПУСКА ---
-        // Если заказа нет в списке, значит это первый цикл после запуска бота.
+        
         if (!_initializedOrders.Contains(order.Id))
         {
             _initializedOrders.Add(order.Id);
-            needsDiscordUpdate = true; // Принудительно обновляем Discord
+            needsDiscordUpdate = true;
         }
 
         var boostStart = order.Shifts.Min(s => s.StartUtc);
         var matches = await dota.GetRecentMatchesAsync(order.DotaAccountId);
+        
 
-        // 1. Обновляем текущий ранг игрока
         var playerInfo = await dota.GetPlayerInfoAsync(order.DotaAccountId);
+        order.NameAccount = playerInfo.Profile.PersonaName;
         if (playerInfo?.RankTier != null && order.CurrentRankTier != playerInfo.RankTier.Value)
         {
             order.CurrentRankTier = playerInfo.RankTier.Value;
             await db.UpdateOrderAsync(order);
-            needsDiscordUpdate = true; // Ранг изменился, надо обновить
+            needsDiscordUpdate = true;
         }
-
-        // 2. Обрабатываем матчи (если они вообще есть)
+        
         if (matches.Count > 0)
         {
             var now = DateTime.UtcNow;
@@ -122,12 +120,20 @@ public class MatchTrackerService : BackgroundService
 
             if (allWithTime.Count > 0)
             {
-                needsDiscordUpdate = true; // Найдены новые матчи
                 bool orderCompleted = false;
+                bool matchesAdded = false;
 
                 foreach (var item in allWithTime)
                 {
                     var m = item.Match;
+                    
+                    if (order.Service != null && !DotaRankHelper.IsMatchAllowed(order.Service.Type, m.GameMode, m.LobbyType))
+                    {
+                        continue; 
+                    }
+
+                    matchesAdded = true;
+
                     bool isBooster = IsDuringAnyShift(item.TimeUtc, order.Shifts, now);
                     bool isRadiant = m.PlayerSlot < 128;
                     bool isWin = (isRadiant && m.RadiantWin) || (!isRadiant && !m.RadiantWin);
@@ -141,7 +147,7 @@ public class MatchTrackerService : BackgroundService
                     else
                     {
                         order.OwnerGamesPlayed++;
-                        if (isWin) order.ClientLose++;
+                        if (isWin) order.ClientWin++;
                         else order.ClientLose++;
                     }
 
@@ -159,43 +165,53 @@ public class MatchTrackerService : BackgroundService
                         GameMode = m.GameMode,
                         LobbyType = m.LobbyType
                     });
+                }
+                
+                if (matchesAdded)
+                {
+                    needsDiscordUpdate = true;
 
                     if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
                     {
-                        if (order.TargetRankTier > 0 && order.CurrentRankTier >= order.TargetRankTier)
+                        int netWins = order.BoosterWin - order.BoosterLose;
+                        if (order.TargetGames > 0 && netWins >= order.TargetGames)
                         {
-                            order.Status = OrderStatus.Completed;
-                            order.IsShiftActive = false;
                             orderCompleted = true;
                         }
                     }
-                    else if (order.Service?.Type == ServiceType.LP || order.Service?.Type == ServiceType.Behavior)
+                    else if (order.Service?.Type == ServiceType.LP)
                     {
-                        if (order.TotalGamesPlayed >= order.TargetGames)
+                        int totalWins = order.BoosterWin + order.ClientWin;
+                        if (order.TargetGames > 0 && totalWins >= order.TargetGames)
                         {
-                            order.Status = OrderStatus.Completed;
-                            order.IsShiftActive = false;
                             orderCompleted = true;
                         }
                     }
+                    else if (order.Service?.Type == ServiceType.Behavior)
+                    {
+                        if (order.TargetGames > 0 && order.BoosterGamesPlayed >= order.TargetGames)
+                        {
+                            orderCompleted = true;
+                        }
+                    }
+
+                    if (orderCompleted)
+                    {
+                        order.Status = OrderStatus.Completed;
+                        order.IsShiftActive = false;
+                    }
+
+                    // Обрезаем историю до 15 матчей
+                    if (storedMatches.Count > 15)
+                        storedMatches = storedMatches.OrderByDescending(m => m.StartTime).Take(15).ToList();
+
+                    order.MatchesJson = JsonSerializer.Serialize(storedMatches);
+                    await db.UpdateOrderAsync(order);
+
+                    if (orderCompleted)
+                        Console.WriteLine($"[TRACKER] Заказ {order.Id} ВЫПОЛНЕН!");
                 }
-                
-                if (storedMatches.Count > 15)
-                    storedMatches = storedMatches.OrderByDescending(m => m.StartTime).Take(15).ToList();
-
-                order.MatchesJson = JsonSerializer.Serialize(storedMatches);
-                await db.UpdateOrderAsync(order);
-
-                if (orderCompleted)
-                    Console.WriteLine($"[TRACKER] Заказ {order.Id} ВЫПОЛНЕН!");
-            }
-        }
-
-        // 3. Обновляем сообщения в Discord (если это первый запуск ИЛИ были новые игры/ранг)
-        if (needsDiscordUpdate)
-        {
-            await SendProgressToThreadAsync(order.ClientThreadId, order, actions);
-            await SendProgressToThreadAsync(order.BoosterThreadId, order, actions);
+            } 
         }
     }
 
