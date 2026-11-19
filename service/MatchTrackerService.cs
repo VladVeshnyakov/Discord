@@ -79,44 +79,22 @@ public class MatchTrackerService : BackgroundService
             await Task.Delay(TimeSpan.FromMinutes(6), stoppingToken);
         }
     }
+  
+
     private async Task ProcessOrderAsync(Order order, DbService db, OpenDotaService dota, DiscordBirge.Actions.UserActions actions, CancellationToken ct)
-{
-    if (order.Shifts == null || order.Shifts.Count == 0) return;
-    if (order.DotaAccountId == 0) return;
-
-    bool needsDiscordUpdate = false;
-    
-    if (!_initializedOrders.Contains(order.Id))
     {
-        _initializedOrders.Add(order.Id);
-        needsDiscordUpdate = true;
-    }
+        if (order.Shifts == null || order.Shifts.Count == 0) return;
+        if (order.DotaAccountId == 0) return;
 
-    var boostStart = order.Shifts.Min(s => s.StartUtc);
-    
-    // 1. Получаем матчи
-    var matches = await dota.GetRecentMatchesAsync(order.DotaAccountId);
-    if (matches == null) matches = new List<DotaMatchDto>();
+        bool isFirstRun = !_initializedOrders.Contains(order.Id);
+        bool needsDiscordUpdate = isFirstRun;
 
-    // 2. Получаем профиль (ИСПРАВЛЕНО: защита от NullReferenceException)
-    var playerInfo = await dota.GetPlayerInfoAsync(order.DotaAccountId);
-    if (playerInfo?.Profile != null && order.NameAccount != playerInfo.Profile.PersonaName)
-    {
-        order.NameAccount = playerInfo.Profile.PersonaName;
-        await db.UpdateOrderAsync(order);
-        needsDiscordUpdate = true;
-    }
+        var boostStart = order.Shifts.Min(s => s.StartUtc);
+        
+        // 1. Запрашиваем ТОЛЬКО матчи (1 запрос)
+        var matches = await dota.GetRecentMatchesAsync(order.DotaAccountId);
+        if (matches == null) matches = new List<DotaMatchDto>();
 
-    if (playerInfo?.RankTier != null && order.CurrentRankTier != playerInfo.RankTier.Value)
-    {
-        order.CurrentRankTier = playerInfo.RankTier.Value;
-        await db.UpdateOrderAsync(order);
-        needsDiscordUpdate = true;
-    }
-    
-    // 3. Обрабатываем матчи
-    if (matches.Count > 0)
-    {
         var now = DateTime.UtcNow;
         var storedMatches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
         var processedIds = storedMatches.Select(m => m.MatchId).ToHashSet();
@@ -127,15 +105,17 @@ public class MatchTrackerService : BackgroundService
             .OrderBy(x => x.TimeUtc)
             .ToList();
 
+        bool matchesAdded = false;
+
+        // 2. Обрабатываем новые матчи (если они есть)
         if (allWithTime.Count > 0)
         {
             bool orderCompleted = false;
-            bool matchesAdded = false;
 
             foreach (var item in allWithTime)
             {
                 var m = item.Match;
-                if (m == null) continue; // Защита на всякий случай
+                if (m == null) continue;
 
                 if (order.Service != null && !DotaRankHelper.IsMatchAllowed(order.Service.Type, m.GameMode, m.LobbyType))
                 {
@@ -176,33 +156,25 @@ public class MatchTrackerService : BackgroundService
                     LobbyType = m.LobbyType
                 });
             }
-            
+
             if (matchesAdded)
             {
                 needsDiscordUpdate = true;
 
+                // Проверка на завершение заказа
                 if (order.Service?.Type == ServiceType.Boost || order.Service?.Type == ServiceType.Calibration)
                 {
                     int netWins = order.BoosterWin - order.BoosterLose;
-                    if (order.TargetGames > 0 && netWins >= order.TargetGames)
-                    {
-                        orderCompleted = true;
-                    }
+                    if (order.TargetGames > 0 && netWins >= order.TargetGames) orderCompleted = true;
                 }
                 else if (order.Service?.Type == ServiceType.LP)
                 {
                     int totalWins = order.BoosterWin + order.ClientWin;
-                    if (order.TargetGames > 0 && totalWins >= order.TargetGames)
-                    {
-                        orderCompleted = true;
-                    }
+                    if (order.TargetGames > 0 && totalWins >= order.TargetGames) orderCompleted = true;
                 }
                 else if (order.Service?.Type == ServiceType.Behavior)
                 {
-                    if (order.TargetGames > 0 && order.BoosterGamesPlayed >= order.TargetGames)
-                    {
-                        orderCompleted = true;
-                    }
+                    if (order.TargetGames > 0 && order.BoosterGamesPlayed >= order.TargetGames) orderCompleted = true;
                 }
 
                 if (orderCompleted)
@@ -211,27 +183,42 @@ public class MatchTrackerService : BackgroundService
                     order.IsShiftActive = false;
                 }
 
-                // Обрезаем историю до 15 матчей
                 if (storedMatches.Count > 15)
                     storedMatches = storedMatches.OrderByDescending(m => m.StartTime).Take(15).ToList();
 
                 order.MatchesJson = JsonSerializer.Serialize(storedMatches);
-                await db.UpdateOrderAsync(order);
-
-                if (orderCompleted)
-                    Console.WriteLine($"[TRACKER] Заказ {order.Id} ВЫПОЛНЕН!");
             }
-        } 
-    }
+        }
+        
+        if (!matchesAdded && !isFirstRun)
+        {
+            return; 
+        }
 
-    // 4. ОБНОВЛЯЕМ DISCORD (ВОТ ЭТОГО НЕ ХВАТАЛО!)
-    if (needsDiscordUpdate)
-    {
-        await SendProgressToThreadAsync(order.ClientThreadId, order, actions);
-        await SendProgressToThreadAsync(order.BoosterThreadId, order, actions);
-    }
-}
+        _initializedOrders.Add(order.Id);
+        
+        var playerInfo = await dota.GetPlayerInfoAsync(order.DotaAccountId);
+        if (playerInfo?.Profile != null && order.NameAccount != playerInfo.Profile.PersonaName)
+        {
+            order.NameAccount = playerInfo.Profile.PersonaName;
+            needsDiscordUpdate = true;
+        }
 
+        if (playerInfo?.RankTier != null && order.CurrentRankTier != playerInfo.RankTier.Value)
+        {
+            order.CurrentRankTier = playerInfo.RankTier.Value;
+            needsDiscordUpdate = true;
+        }
+
+        // 5. Сохраняем в БД и обновляем Discord
+        await db.UpdateOrderAsync(order);
+
+        if (needsDiscordUpdate)
+        {
+            await SendProgressToThreadAsync(order.ClientThreadId, order, actions);
+            await SendProgressToThreadAsync(order.BoosterThreadId, order, actions);
+        }
+    }
     private async Task SendProgressToThreadAsync(ulong? threadId, Order order, DiscordBirge.Actions.UserActions actions)
     {
         if (threadId is null or 0) return;

@@ -10,7 +10,6 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-
 namespace DiscordBirge.Actions;
 
 public class UserActions
@@ -378,9 +377,16 @@ public class UserActions
         }
     }
 
-    private async Task<Embed> BuildProgressEmbedAsync(Order order, int page)
+  private async Task<Embed> BuildProgressEmbedAsync(Order order, int page)
     {
+        // 1. Пытаемся получить героев из API
         var heroNames = await _dota.GetHeroNamesAsync();
+        // 2. Если API вернул пустоту (например, 429 ошибка), берем локальный список
+        if (heroNames == null || heroNames.Count == 0)
+        {
+            heroNames = DotaRankHelper.DefaultHeroes;
+        }
+
         var matches = JsonSerializer.Deserialize<List<OrderMatch>>(order.MatchesJson ?? "[]") ?? new();
         
         matches = matches.OrderByDescending(m => m.StartTime).ToList();
@@ -398,24 +404,26 @@ public class UserActions
             .WithFooter($"Страница {page + 1} из {totalPages} • Обновляется автоматически")
             .WithCurrentTimestamp();
 
-
-            string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
-            
+        string currentRank = DotaRankHelper.GetRankName(order.CurrentRankTier, null);
         
-            if (order.Service.Type == ServiceType.LP)
-            {
-                embed.AddField("Игры", $"Сыграно всего: **{order.TotalGamesPlayed}** / {order.TargetGames}, бустер сыграл {order.BoosterGamesPlayed}", inline: true);
-            }
+        if (order.Service?.Type == ServiceType.LP)
+        {
+            embed.AddField("Игры", $"Сыграно всего: **{order.TotalGamesPlayed}** / {order.TargetGames}, бустер сыграл {order.BoosterGamesPlayed}", inline: true);
+        }
+        else 
+        {
+            embed.AddField("Игры", $"Сыграно: **{order.BoosterGamesPlayed}** / {order.TargetGames}", inline: true);
+        }
 
-            else embed.AddField("Игры", $"Сыграно: **{order.BoosterGamesPlayed}** / {order.TargetGames}", inline: true);
-
-            embed.AddField("info", $"Ранг:{currentRank}; {order.NameAccount}");
+        embed.AddField("info", $"Ранг: {currentRank}; {order.NameAccount ?? "Скрыт"}");
         
-        string shiftStatus = order.IsShiftActive ? "Активна" : "Не начата";
+        string shiftStatus = order.IsShiftActive ? "🟢 Активна" : "🔴 Не начата";
         embed.AddField("Смена", shiftStatus, inline: true);
+        
+        // ИСПРАВЛЕНО: добавил закрывающие звездочки для клиента
         embed.AddField("👥 Игроки",
-            $"Бустер: **W:{order.BoosterWin} L:{order.BoosterLose}\n" +
-            $"Клиент: **W:{order.ClientWin} L:{order.ClientLose}",
+            $"Бустер: **W:{order.BoosterWin} L:{order.BoosterLose}**\n" +
+            $"Клиент: **W:{order.ClientWin} L:{order.ClientLose}**",
             inline: true);
         
         var sb = new StringBuilder();
@@ -424,7 +432,7 @@ public class UserActions
             var tableData = new List<string[]>();
             foreach (var m in pagedMatches)
             {
-                string res = m.IsWin ? "W " : "L"; 
+                string res = m.IsWin ? "W " : "L "; 
                 string who = m.IsBooster ? "Бустер" : "Клиент";
                 string hero = heroNames.TryGetValue(m.HeroId, out var name) ? name : $"Герой #{m.HeroId}";
                 string kda = $"{m.Kills}/{m.Deaths}/{m.Assists}";
