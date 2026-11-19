@@ -28,7 +28,11 @@ public class OpenDotaService
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync();
             var heroes = JsonSerializer.Deserialize<Dictionary<string, DotaHeroDto>>(content,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true, 
+                    NumberHandling = JsonNumberHandling.AllowReadingFromString
+                });
             _heroNames = heroes?.ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value.LocalizedName) ?? new();
             return _heroNames;
         }
@@ -48,30 +52,18 @@ public class OpenDotaService
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync();
             var matches = JsonSerializer.Deserialize<List<DotaMatchDto>>(content,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    NumberHandling = JsonNumberHandling.AllowReadingFromString
+                    
+                });
             return matches ?? new List<DotaMatchDto>();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[OPENDOTA MATCHES ERROR] {ex.Message}");
             return new List<DotaMatchDto>();
-        }
-    }
-
-    public async Task<DotaMatchDetailsDto?> GetMatchDetailsAsync(long matchId)
-    {
-        try
-        {
-            var response = await _http.GetAsync($"matches/{matchId}");
-            response.EnsureSuccessStatusCode();
-            var content = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<DotaMatchDetailsDto>(content,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[OPENDOTA MATCH DETAILS ERROR] {ex.Message}");
-            return null;
         }
     }
 
@@ -87,7 +79,11 @@ public class OpenDotaService
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync();
             var player = JsonSerializer.Deserialize<DotaPlayerDto>(content,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    NumberHandling = JsonNumberHandling.AllowReadingFromString
+                });
             if (player?.Profile != null) _playerCache[accountId] = (player, DateTime.UtcNow);
             return player;
         }
@@ -97,23 +93,7 @@ public class OpenDotaService
             return null;
         }
     }
-
-    public async Task<DotaWlDto?> GetWinLossAsync(long accountId)
-    {
-        try
-        {
-            var response = await _http.GetAsync($"players/{accountId}/wl");
-            response.EnsureSuccessStatusCode();
-            var content = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<DotaWlDto>(content,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[OPENDOTA WL ERROR] {ex.Message}");
-            return null;
-        }
-    }
+    
 }
 public class DotaMatchDto
 {
