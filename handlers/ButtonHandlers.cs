@@ -82,7 +82,11 @@ public class ButtonHandlers
                 return;
             }
         }
-
+        if (id.StartsWith("create_dispute_") && int.TryParse(id.Replace("create_dispute_", ""), out int disputeOrderId))
+        {
+            await _actions.HandleDisputeAsync(component, disputeOrderId);
+            return;
+        }
         if (id.StartsWith("start_shift_") && int.TryParse(id.Replace("start_shift_", ""), out int startId))
         {
             await _actions.StartShiftAsync(component, startId);

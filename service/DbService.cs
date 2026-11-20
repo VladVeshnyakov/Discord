@@ -77,19 +77,7 @@ public class DbService
         await _db.SaveChangesAsync();
     }
 
-// Найти активную смену (где EndUtc = null)
-    public async Task<Shift?> GetActiveShiftAsync(int orderId)
-    {
-        return await _db.Shifts
-            .FirstOrDefaultAsync(s => s.OrderId == orderId && s.EndUtc == null);
-    }
 
-// Обновить смену
-    public async Task UpdateShiftAsync(Shift shift)
-    {
-        _db.Shifts.Update(shift);
-        await _db.SaveChangesAsync();
-    }
 
     public async Task<Order?> GetOrderByCustomIdAsync(string customId)
     {
@@ -120,17 +108,15 @@ public class DbService
         }
     }
 
-    public async Task UpdateOrderThreadsAsync(int orderId, ulong? clientThreadId, ulong? boosterThreadId)
+    public async Task<List<Order>> GetCompletedOrdersAsync(CancellationToken ct = default)
     {
-        var order = await _db.Orders.FindAsync(orderId);
-        if (order != null)
-        {
-            order.ClientThreadId = clientThreadId;
-            order.BoosterThreadId = boosterThreadId;
-            await _db.SaveChangesAsync();
-        }
+        return await _db.Orders
+            .AsNoTracking()
+            .Where(o => o.Status == OrderStatus.Completed)
+            .ToListAsync(ct);
     }
 
+      
     public async Task<List<Order>> GetBoosterActiveOrdersAsync(ulong boosterId)
     {
         return await _db.Orders

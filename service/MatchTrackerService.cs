@@ -19,14 +19,15 @@ public class MatchTrackerService : BackgroundService
     private readonly ILogger<MatchTrackerService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly DiscordSocketClient _client;
-    
     // Храним ID заказов, которые уже обновили интерфейс после старта
     private readonly HashSet<int> _initializedOrders = new();
-
+    private readonly HashSet<int> _notifiedOrders = new();
+    
     public MatchTrackerService(
         ILogger<MatchTrackerService> logger,
         IServiceScopeFactory scopeFactory,
-        DiscordSocketClient client)
+        DiscordSocketClient client, 
+        UserActions  userActions)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -36,20 +37,19 @@ public class MatchTrackerService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
-
+    
         while (!stoppingToken.IsCancellationRequested)
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<DbService>();
             var dota = scope.ServiceProvider.GetRequiredService<OpenDotaService>();
-            
             var bepusdt = scope.ServiceProvider.GetRequiredService<BepusdtService>();
             var orderChannels = scope.ServiceProvider.GetRequiredService<OrderChannelService>();
             var info = scope.ServiceProvider.GetRequiredService<InfoMessageService>();
             var socket = scope.ServiceProvider.GetRequiredService<DiscordSocketClient>();
             var actions = new UserActions(db, bepusdt, orderChannels, info, dota, socket);
-
-
+    
+            // 1. Обрабатываем активные заказы (как было)
             List<Order> activeOrders;
             try
             {
@@ -61,7 +61,7 @@ public class MatchTrackerService : BackgroundService
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
                 continue;
             }
-
+    
             foreach (var order in activeOrders)
             {
                 if (stoppingToken.IsCancellationRequested) break;
@@ -73,14 +73,26 @@ public class MatchTrackerService : BackgroundService
                 {
                     _logger.LogError(ex, "Ошибка обработки заказа #{Id}", order.Id);
                 }
-                await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken); // 15 сек для экономии лимитов
             }
+    
+            // 2. НОВОЕ: Проверяем завершенные заказы
+            // 2. Проверяем завершенные заказы
+            var completedOrders = await db.GetCompletedOrdersAsync(stoppingToken);
 
+            foreach (var order in completedOrders)
+            {
+                // Если мы еще не отправляли уведомление по этому заказу в текущей сессии
+                if (!_notifiedOrders.Contains(order.Id))
+                {
+                    // ИСПОЛЬЗУЕМ actions, а не _userActions
+                    await actions.SendCompletionNotificationAsync(order, db); 
+                    _notifiedOrders.Add(order.Id); // Запоминаем, что отправили
+                }
+            }
             await Task.Delay(TimeSpan.FromMinutes(6), stoppingToken);
         }
     }
-  
-
     private async Task ProcessOrderAsync(Order order, DbService db, OpenDotaService dota, DiscordBirge.Actions.UserActions actions, CancellationToken ct)
     {
         if (order.Shifts == null || order.Shifts.Count == 0) return;
@@ -189,14 +201,16 @@ public class MatchTrackerService : BackgroundService
                 order.MatchesJson = JsonSerializer.Serialize(storedMatches);
             }
         }
-        
+
+        // 3. Если новых матчей нет и это НЕ первый запуск — ЭКОНОМИМ ЗАПРОСЫ и выходим!
         if (!matchesAdded && !isFirstRun)
         {
             return; 
         }
 
         _initializedOrders.Add(order.Id);
-        
+
+        // 4. Запрашиваем профиль (2-й запрос) ТОЛЬКО если есть новые игры или это первый запуск
         var playerInfo = await dota.GetPlayerInfoAsync(order.DotaAccountId);
         if (playerInfo?.Profile != null && order.NameAccount != playerInfo.Profile.PersonaName)
         {
@@ -219,6 +233,7 @@ public class MatchTrackerService : BackgroundService
             await SendProgressToThreadAsync(order.BoosterThreadId, order, actions);
         }
     }
+
     private async Task SendProgressToThreadAsync(ulong? threadId, Order order, DiscordBirge.Actions.UserActions actions)
     {
         if (threadId is null or 0) return;

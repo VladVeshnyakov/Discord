@@ -376,8 +376,39 @@ public class UserActions
             await UpdateProgressAsync(otherChannel, order);
         }
     }
+    public async Task HandleDisputeAsync(SocketMessageComponent component, int orderId)
+    {
+        await component.DeferAsync(ephemeral: true);
+        await component.FollowupAsync($"⚠️ Спор по заказу #{orderId} открыт. Администрация свяжется с вами.", ephemeral: true);
+    }
+    public async Task SendCompletionNotificationAsync(Order order, DbService db)
+    {
+        var embed = new EmbedBuilder()
+            .WithTitle($"🏁 Заказ #{order.Id} Успешно завершен!")
+            .WithDescription("Спасибо за использование нашего сервиса. Если вы не согласны с результатом или у вас возникли проблемы, нажмите кнопку ниже.")
+            .WithColor(Color.Gold)
+            .WithCurrentTimestamp()
+            .Build();
 
-  private async Task<Embed> BuildProgressEmbedAsync(Order order, int page)
+        var builder = new ComponentBuilder()
+            .WithButton("⚠️ Создать спор", $"create_dispute_{order.Id}", ButtonStyle.Danger);
+
+        // Отправляем клиенту
+        if (order.ClientThreadId.HasValue && _client.GetChannel(order.ClientThreadId.Value) is IMessageChannel clientChannel)
+        {
+            await clientChannel.SendMessageAsync(embed: embed, components: builder.Build());
+        }
+
+        // Отправляем бустеру
+        if (order.BoosterThreadId.HasValue && _client.GetChannel(order.BoosterThreadId.Value) is IMessageChannel boosterChannel)
+        {
+            await boosterChannel.SendMessageAsync(embed: embed, components: builder.Build());
+        }
+
+        Console.WriteLine($"[TRACKER] Отправлено уведомление о завершении заказа #{order.Id}");
+    }
+    
+    private async Task<Embed> BuildProgressEmbedAsync(Order order, int page)
     {
         // 1. Пытаемся получить героев из API
         var heroNames = await _dota.GetHeroNamesAsync();
